@@ -7,51 +7,22 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-macos:
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
-            arch: 'aarch64'
-          - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin'
-            arch: 'x86_64'
-          - platform: 'ubuntu-22.04'
-            args: ''
-            arch: 'amd64'
-          - platform: 'windows-latest'
-            args: ''
-            arch: 'x64'
-
-    runs-on: ${{ matrix.platform }}
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform == 'macos-latest' && matrix.arch == 'aarch64' && 'aarch64-apple-darwin' || matrix.platform == 'macos-latest' && matrix.arch == 'x86_64' && 'x86_64-apple-darwin' || '' }}
-
-      - name: Install dependencies (Ubuntu)
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Install frontend dependencies
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Install dependencies
         run: npm install
-
       - name: Build Tauri
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v0.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -60,4 +31,53 @@ jobs:
           releaseBody: 'See the assets to download and install this version.'
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}
+
+  build-windows:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: npm install
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Reagent Hub ${{ github.ref_name }}'
+          releaseBody: 'See the assets to download and install this version.'
+          releaseDraft: true
+          prerelease: false
+
+  build-linux:
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Install frontend dependencies
+        run: npm install
+      - name: Build Tauri
+        uses: tauri-apps/tauri-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Reagent Hub ${{ github.ref_name }}'
+          releaseBody: 'See the assets to download and install this version.'
+          releaseDraft: true
+          prerelease: false
