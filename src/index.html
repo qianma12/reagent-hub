@@ -1,0 +1,2378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Synaura Reagent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#0654A3',
+            secondary: '#00AAB5',
+            accent: '#38AA6D',
+            danger: '#E55353',
+            surface: '#FFFFFF',
+            bg: '#F5F7FA',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.25s ease-out; }
+    .stepper-btn { transition: all 0.12s ease; user-select: none; }
+    .stepper-btn:active:not(:disabled) { transform: scale(0.9); }
+    .stepper-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .card-hover { transition: box-shadow 0.2s ease, transform 0.15s ease; }
+    .card-hover:hover { box-shadow: 0 4px 14px rgba(6,84,163,0.1); transform: translateY(-2px); }
+    .modal-backdrop { background: rgba(0,0,0,0.45); backdrop-filter: blur(3px); }
+  </style>
+  <script type="module">
+    import { h, render } from 'https://esm.sh/preact@10.19.3';
+    import { useState, useMemo, useCallback, useEffect, useRef } from 'https://esm.sh/preact@10.19.3/hooks';
+    import htm from 'https://esm.sh/htm@3.1.1';
+    const html = htm.bind(h);
+
+    // ==================== 字段定义 ====================
+    const BUILTIN_FIELDS = [
+      { id: 'name', label: '试剂名称', type: 'text', builtin: true, required: true },
+      { id: 'code', label: '简写代码', type: 'text', builtin: true, required: true },
+      { id: 'brand', label: '品牌', type: 'text', builtin: true, required: false },
+    ];
+
+    const INITIAL_CUSTOM_FIELDS = [
+      { id: 'cf_1', label: 'CAS号', type: 'text', builtin: false, required: false },
+      { id: 'cf_2', label: '储存条件', type: 'text', builtin: false, required: false },
+    ];
+
+    // ==================== Mock 数据 ====================
+    const INITIAL_REAGENTS = [
+      { id: 1, name: '葡萄糖', code: 'P01', brand: 'Sigma-Aldrich', custom: { cf_1: '50-99-7', cf_2: '常温干燥' } },
+      { id: 2, name: '氯化钠', code: 'P02', brand: 'Merck', custom: { cf_1: '7647-14-5', cf_2: '常温干燥' } },
+      { id: 3, name: 'Tris-HCl缓冲液', code: 'P03', brand: 'Thermo Fisher', custom: { cf_1: '1185-53-1', cf_2: '4°C避光' } },
+      { id: 4, name: 'DNA聚合酶', code: 'P04', brand: 'NEB', custom: { cf_1: 'N/A', cf_2: '-20°C' } },
+      { id: 5, name: '琼脂糖', code: 'P05', brand: 'Bio-Rad', custom: { cf_1: '9012-36-6', cf_2: '常温干燥' } },
+      { id: 6, name: 'SDS', code: 'P06', brand: 'Amresco', custom: { cf_1: '151-21-3', cf_2: '常温' } },
+      { id: 7, name: '异丙醇', code: 'P07', brand: '国药集团', custom: { cf_1: '67-63-0', cf_2: '阴凉通风' } },
+      { id: 8, name: '液氮', code: 'P08', brand: '空气化工', custom: { cf_1: '7727-37-9', cf_2: '液氮罐' } },
+    ];
+
+    const INITIAL_INVENTORY = [
+      { id: 101, reagent_id: 1, location: '901实验室', shelf_position: 'A-上', purchase_order: 'PO-2024-001', current_quantity: 12 },
+      { id: 102, reagent_id: 1, location: '903仓库', shelf_position: 'C-3', purchase_order: 'PO-2024-002', current_quantity: 45 },
+      { id: 103, reagent_id: 2, location: '901实验室', shelf_position: 'A-下', purchase_order: 'PO-2024-003', current_quantity: 8 },
+      { id: 104, reagent_id: 2, location: '903仓库', shelf_position: 'C-4', purchase_order: 'PO-2024-004', current_quantity: 120 },
+      { id: 105, reagent_id: 3, location: '901实验室', shelf_position: 'B-中', purchase_order: 'PO-2024-005', current_quantity: 3 },
+      { id: 106, reagent_id: 3, location: '903仓库', shelf_position: 'D-下', purchase_order: 'PO-2024-006', current_quantity: 20 },
+      { id: 107, reagent_id: 4, location: '901实验室', shelf_position: 'B-上', purchase_order: 'PO-2024-007', current_quantity: 0 },
+      { id: 108, reagent_id: 4, location: '903仓库', shelf_position: 'D-中', purchase_order: 'PO-2024-008', current_quantity: 15 },
+      { id: 109, reagent_id: 5, location: '901实验室', shelf_position: 'B-下', purchase_order: 'PO-2024-009', current_quantity: 25 },
+      { id: 110, reagent_id: 6, location: '903仓库', shelf_position: 'C-上', purchase_order: 'PO-2024-010', current_quantity: 60 },
+      { id: 111, reagent_id: 7, location: '901实验室', shelf_position: 'A-中', purchase_order: 'PO-2024-011', current_quantity: 5 },
+      { id: 112, reagent_id: 8, location: '903仓库', shelf_position: 'E-下', purchase_order: 'PO-2024-012', current_quantity: 200 },
+    ];
+
+    const INITIAL_LOGS = [
+      { id: 1, timestamp: '2024-05-01T09:30:00Z', reagent_code: 'P01', location: '901实验室', change_type: '-', change_amount: 2, note: '实验消耗' },
+      { id: 2, timestamp: '2024-05-02T14:15:00Z', reagent_code: 'P02', location: '903仓库', change_type: '+', change_amount: 50, note: '月度采购入库' },
+      { id: 3, timestamp: '2024-05-03T11:00:00Z', reagent_code: 'P03', location: '901实验室', change_type: '-', change_amount: 1, note: 'PCR实验' },
+      { id: 4, timestamp: '2024-05-05T16:45:00Z', reagent_code: 'P01', location: '903仓库', change_type: '+', change_amount: 20, note: '紧急补货' },
+    ];
+
+    // ==================== 布局数据 ====================
+    const INITIAL_LAYOUTS = {
+      '901实验室': {
+        type: 'lab',
+        workbenches: [
+          {
+            id: 'A',
+            name: '实验台A',
+            position: { x: 5, y: 5, w: 90, h: 40 },
+            style: { bg: '#F8FAFC', border: '#CBD5E0', surface: '#F1F5F9' },
+            shelf: { rows: 3, cols: 1, prefix: 'A' },
+            drawers: [
+              { id: 'A-D1', name: '抽屉1', prefix: 'A-D1', style: { bg: '#E2E8F0', border: '#94A3B8' } },
+              { id: 'A-D2', name: '抽屉2', prefix: 'A-D2', style: { bg: '#E2E8F0', border: '#94A3B8' } },
+            ]
+          },
+          {
+            id: 'B',
+            name: '实验台B',
+            position: { x: 5, y: 50, w: 90, h: 40 },
+            style: { bg: '#F8FAFC', border: '#CBD5E0', surface: '#F1F5F9' },
+            shelf: { rows: 3, cols: 1, prefix: 'B' },
+            drawers: [
+              { id: 'B-D1', name: '抽屉1', prefix: 'B-D1', style: { bg: '#E2E8F0', border: '#94A3B8' } },
+            ]
+          }
+        ]
+      },
+      '903仓库': {
+        type: 'warehouse',
+        zones: [
+          {
+            id: 'C区',
+            name: 'C区货架区',
+            position: { x: 5, y: 5, w: 45, h: 45 },
+            style: { bg: '#F1F5F9', border: '#CBD5E0' },
+            racks: [
+              { id: 'C-01', name: 'C-01货架', rows: 4, cols: 1, prefix: 'C' }
+            ],
+            cabinets: [
+              { id: 'C-C1', name: 'C货柜1', prefix: 'C-C1', style: { bg: '#E2E8F0', border: '#94A3B8' } }
+            ]
+          },
+          {
+            id: 'D区',
+            name: 'D区货架区',
+            position: { x: 55, y: 5, w: 40, h: 45 },
+            style: { bg: '#F1F5F9', border: '#CBD5E0' },
+            racks: [
+              { id: 'D-01', name: 'D-01货架', rows: 4, cols: 1, prefix: 'D' }
+            ],
+            cabinets: []
+          },
+          {
+            id: 'E区',
+            name: 'E区货架区',
+            position: { x: 5, y: 55, w: 45, h: 35 },
+            style: { bg: '#F1F5F9', border: '#CBD5E0' },
+            racks: [
+              { id: 'E-01', name: 'E-01货架', rows: 2, cols: 1, prefix: 'E' }
+            ],
+            cabinets: []
+          }
+        ]
+      }
+    };
+
+    function getShelfLabel(shelf, row, col) {
+      const prefix = shelf.prefix;
+      let position = '';
+      if (shelf.rows === 1) position = '';
+      else if (shelf.rows === 2) position = row === 0 ? '上' : '下';
+      else if (shelf.rows === 3) position = row === 0 ? '上' : row === 1 ? '中' : '下';
+      else position = String(row + 1);
+      // cols === 1 时简化编码，不显示列号
+      if (shelf.cols === 1) {
+        return position ? `${prefix}-${position}` : prefix;
+      }
+      const colNum = String(col + 1).padStart(2, '0');
+      return position ? `${prefix}-${colNum}-${position}` : `${prefix}-${colNum}`;
+    }
+
+    function getDefaultInnerLayout(wb) {
+      // 如果已有 innerLayout 且结构与当前架子和抽屉数量匹配，直接返回
+      if (wb.innerLayout) {
+        const shelfMatch = wb.innerLayout.shelves?.length === wb.shelf.rows &&
+          wb.innerLayout.shelves?.every((s, i) => s.row === i);
+        const drawerMatch = wb.innerLayout.drawers?.length === wb.drawers.length &&
+          wb.innerLayout.drawers?.every((d, i) => d.id === wb.drawers[i]?.id);
+        if (shelfMatch && drawerMatch) return wb.innerLayout;
+      }
+      // 架子占上半部分（0~48%），抽屉占下半部分（52%~100%）
+      const shelves = [];
+      const rows = wb.shelf.rows;
+      const shelfGap = 2;
+      const shelfAvailable = 46; // 0~48% 留给架子
+      const shelfHeight = rows > 0 ? Math.max(8, (shelfAvailable - shelfGap * (rows - 1)) / rows) : 0;
+      for (let i = 0; i < rows; i++) {
+        shelves.push({
+          row: i,
+          x: 2,
+          y: 2 + i * (shelfHeight + shelfGap),
+          w: 96,
+          h: shelfHeight
+        });
+      }
+      const drawers = [];
+      const drawerCount = wb.drawers.length;
+      const drawerGap = 2;
+      const drawerHeight = drawerCount > 0 ? 46 : 0;
+      const drawerWidth = drawerCount > 0 ? Math.max(10, (96 - drawerGap * (drawerCount - 1)) / drawerCount) : 0;
+      for (let i = 0; i < drawerCount; i++) {
+        drawers.push({
+          id: wb.drawers[i].id,
+          x: 2 + i * (drawerWidth + drawerGap),
+          y: 52,
+          w: drawerWidth,
+          h: drawerHeight
+        });
+      }
+      return { shelves, drawers };
+    }
+
+    function findCellByPosition(layout, position) {
+      if (!layout || !position) return null;
+      if (layout.type === 'lab') {
+        for (const wb of layout.workbenches) {
+          for (let r = 0; r < wb.shelf.rows; r++) {
+            for (let c = 0; c < wb.shelf.cols; c++) {
+              if (getShelfLabel(wb.shelf, r, c) === position) return { type: 'shelf', workbench: wb, row: r, col: c, label: position };
+            }
+            // 兼容旧格式（cols=1 时的旧编码 A-01-上）
+            if (wb.shelf.cols === 1) {
+              const prefix = wb.shelf.prefix;
+              let pos = '';
+              if (wb.shelf.rows === 1) pos = '';
+              else if (wb.shelf.rows === 2) pos = r === 0 ? '上' : '下';
+              else if (wb.shelf.rows === 3) pos = r === 0 ? '上' : r === 1 ? '中' : '下';
+              else pos = String(r + 1);
+              const oldLabel = pos ? `${prefix}-01-${pos}` : `${prefix}-01`;
+              if (oldLabel === position) return { type: 'shelf', workbench: wb, row: r, col: 0, label: position };
+            }
+          }
+          for (const drawer of wb.drawers) {
+            if (drawer.prefix === position) return { type: 'drawer', workbench: wb, drawer, label: position };
+          }
+        }
+      } else if (layout.type === 'warehouse') {
+        for (const zone of layout.zones) {
+          for (const rack of zone.racks) {
+            for (let r = 0; r < rack.rows; r++) {
+              for (let c = 0; c < rack.cols; c++) {
+                if (getShelfLabel(rack, r, c) === position) return { type: 'rack', zone, rack, row: r, col: c, label: position };
+              }
+              if (rack.cols === 1) {
+                const prefix = rack.prefix;
+                let pos = '';
+                if (rack.rows === 1) pos = '';
+                else if (rack.rows === 2) pos = r === 0 ? '上' : '下';
+                else if (rack.rows === 3) pos = r === 0 ? '上' : r === 1 ? '中' : '下';
+                else pos = String(r + 1);
+                const oldLabel = pos ? `${prefix}-01-${pos}` : `${prefix}-01`;
+                if (oldLabel === position) return { type: 'rack', zone, rack, row: r, col: 0, label: position };
+              }
+            }
+          }
+          for (const cabinet of zone.cabinets) {
+            if (cabinet.prefix === position) return { type: 'cabinet', zone, cabinet, label: position };
+          }
+        }
+      }
+      return null;
+    }
+
+    // ==================== 工具函数 ====================
+    function formatDate(isoString) {
+      const d = new Date(isoString);
+      return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function exportToCSV(data, filename) {
+      if (data.length === 0) return alert('无数据可导出');
+      const headers = Object.keys(data[0]);
+      const rows = data.map(row => headers.map(h => {
+        const val = row[h];
+        if (typeof val === 'string' && (val.includes(',') || val.includes('"') || val.includes('\n'))) {
+          return '"' + val.replace(/"/g, '""') + '"';
+        }
+        return val;
+      }).join(','));
+      const csv = [headers.join(','), ...rows].join('\n');
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+
+    function parseCSV(text) {
+      const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) return [];
+      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+      return lines.slice(1).map(line => {
+        const values = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+            else { inQuotes = !inQuotes; }
+          } else if (char === ',' && !inQuotes) {
+            values.push(current.trim().replace(/^"|"$/g, ''));
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        values.push(current.trim().replace(/^"|"$/g, ''));
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = values[i] || '');
+        return obj;
+      });
+    }
+
+    // ==================== 通用组件 ====================
+
+    function QuantityStepper({ quantity, onChange, min = 0, max = 9999 }) {
+      const [isEditing, setIsEditing] = useState(false);
+      const [editValue, setEditValue] = useState(String(quantity));
+      const inputRef = useRef(null);
+
+      useEffect(() => {
+        if (isEditing && inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      }, [isEditing]);
+
+      const handleDecrement = () => { if (quantity > min) onChange(quantity - 1); };
+      const handleIncrement = () => { if (quantity < max) onChange(quantity + 1); };
+      const handleStartEdit = () => { setEditValue(String(quantity)); setIsEditing(true); };
+      const handleConfirm = () => {
+        const val = parseInt(editValue, 10);
+        if (!isNaN(val) && val >= min && val <= max) onChange(val);
+        setIsEditing(false);
+      };
+      const handleKeyDown = (e) => {
+        if (e.key === 'Enter') handleConfirm();
+        if (e.key === 'Escape') setIsEditing(false);
+      };
+
+      return html`
+        <div class="flex items-center gap-1">
+          <button onClick=${handleDecrement} disabled=${quantity <= min}
+            class="stepper-btn w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold ${quantity <= min ? 'bg-gray-300' : 'bg-red-500 hover:bg-red-600 shadow-sm'}"
+            title="减少">−</button>
+          ${isEditing ? html`
+            <input ref=${inputRef} type="number" value=${editValue}
+              onInput=${e => setEditValue(e.target.value)}
+              onBlur=${handleConfirm} onKeyDown=${handleKeyDown}
+              class="w-14 h-8 text-center font-semibold text-primary border-2 border-primary rounded-lg outline-none text-sm"
+              min=${min} max=${max} />
+          ` : html`
+            <button onClick=${handleStartEdit}
+              class="w-14 h-8 text-center font-semibold text-gray-800 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm transition-colors cursor-text select-none"
+              title="点击直接输入数量">${quantity}</button>
+          `}
+          <button onClick=${handleIncrement} disabled=${quantity >= max}
+            class="stepper-btn w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold ${quantity >= max ? 'bg-gray-300' : 'bg-green-600 hover:bg-green-700 shadow-sm'}"
+            title="增加">+</button>
+        </div>
+      `;
+    }
+
+    // ==================== 全局总览 ====================
+
+    function AggregateView({ reagents, inventory, fields }) {
+      const [search, setSearch] = useState('');
+      const customFields = fields.filter(f => !f.builtin);
+
+      const data = useMemo(() => {
+        return reagents.map(r => {
+          const total = inventory.filter(inv => inv.reagent_id === r.id).reduce((sum, inv) => sum + inv.current_quantity, 0);
+          return { ...r, total };
+        }).filter(r => {
+          const s = search.toLowerCase();
+          const basicMatch = r.name.toLowerCase().includes(s) || r.code.toLowerCase().includes(s) || r.brand.toLowerCase().includes(s);
+          const customMatch = Object.values(r.custom || {}).some(v => String(v).toLowerCase().includes(s));
+          return basicMatch || customMatch;
+        });
+      }, [reagents, inventory, search]);
+
+      return html`
+        <div class="fade-in">
+          <div class="flex items-center gap-3 mb-6">
+            <div class="flex-1 relative">
+              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
+              <input type="text" placeholder="搜索试剂名称、简写、品牌或自定义字段..." value=${search}
+                onInput=${e => setSearch(e.target.value)}
+                class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm" />
+            </div>
+            <button onClick=${() => alert('扫码功能预留：后续接入摄像头扫描试剂条码/二维码')}
+              class="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 rounded-xl hover:border-primary hover:text-primary transition-all text-sm font-medium text-gray-600">
+              <span class="text-lg">📷</span><span class="hidden sm:inline">扫码</span>
+            </button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            ${data.map(item => html`
+              <div key=${item.id} class="bg-white rounded-xl p-5 border border-gray-100 card-hover">
+                <div class="flex items-start justify-between mb-3">
+                  <span class="inline-block px-2.5 py-0.5 bg-primary/10 text-primary text-xs font-bold rounded-md tracking-wide">${item.code}</span>
+                  <span class="text-xs text-gray-400">${item.brand}</span>
+                </div>
+                <h3 class="font-semibold text-gray-800 text-lg mb-1">${item.name}</h3>
+                ${customFields.length > 0 && html`
+                  <div class="flex flex-wrap gap-1.5 mt-2">
+                    ${customFields.map(cf => {
+                      const val = item.custom?.[cf.id];
+                      if (!val) return null;
+                      return html`<span key=${cf.id} class="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">${cf.label}:${val}</span>`;
+                    })}
+                  </div>
+                `}
+                <div class="mt-4 flex items-end justify-between">
+                  <span class="text-xs text-gray-400">总库存量</span>
+                  <span class="text-2xl font-bold ${item.total === 0 ? 'text-danger' : 'text-primary'}">${item.total}</span>
+                </div>
+                <div class="mt-2 w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                  <div class="h-full rounded-full bg-gradient-to-r from-primary to-secondary transition-all duration-500"
+                    style=${{ width: Math.min(item.total / 2, 100) + '%' }} />
+                </div>
+              </div>
+            `)}
+          </div>
+          ${data.length === 0 && html`
+            <div class="text-center py-20 text-gray-400">
+              <div class="text-5xl mb-3 opacity-50">📦</div>
+              <p>未找到匹配的试剂</p>
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    // ==================== 分仓明细（含移库） ====================
+
+    function SegmentedView({ reagents, inventory, fields, onInventoryChange, onLogAdd }) {
+      const [activeTab, setActiveTab] = useState('901实验室');
+      const [search, setSearch] = useState('');
+      const customFields = fields.filter(f => !f.builtin);
+
+      const filteredInventory = useMemo(() => {
+        return inventory
+          .filter(inv => inv.location === activeTab)
+          .filter(inv => {
+            const r = reagents.find(rg => rg.id === inv.reagent_id);
+            if (!r) return false;
+            const s = search.toLowerCase();
+            const basicMatch = r.name.toLowerCase().includes(s) || r.code.toLowerCase().includes(s) || inv.purchase_order.toLowerCase().includes(s);
+            const customMatch = Object.values(r.custom || {}).some(v => String(v).toLowerCase().includes(s));
+            return basicMatch || customMatch;
+          })
+          .map(inv => ({ ...inv, reagent: reagents.find(rg => rg.id === inv.reagent_id) }));
+      }, [inventory, activeTab, reagents, search]);
+
+      const handleQuantityChange = (itemId, newQuantity) => {
+        const item = inventory.find(inv => inv.id === itemId);
+        if (!item) return;
+        const diff = newQuantity - item.current_quantity;
+        if (diff === 0) return;
+        const reagent = reagents.find(r => r.id === item.reagent_id);
+        onInventoryChange(itemId, newQuantity);
+        onLogAdd({
+          reagent_code: reagent?.code || 'UNKNOWN',
+          location: item.location,
+          change_type: diff > 0 ? '+' : '-',
+          change_amount: Math.abs(diff),
+          note: diff > 0 ? '手动入库调整' : '手动出库调整',
+        });
+      };
+
+      const handleTransfer = (itemId) => {
+        const item = inventory.find(inv => inv.id === itemId);
+        if (!item || item.current_quantity <= 0) return alert('库存不足，无法移库');
+        const reagent = reagents.find(r => r.id === item.reagent_id);
+        if (!reagent) return;
+
+        onInventoryChange(itemId, item.current_quantity - 1);
+
+        const labItem = inventory.find(inv => inv.reagent_id === item.reagent_id && inv.location === '901实验室');
+        if (labItem) {
+          onInventoryChange(labItem.id, labItem.current_quantity + 1);
+        } else {
+          const newId = Math.max(...inventory.map(i => i.id), 0) + 1;
+          onInventoryChange('__NEW__', {
+            id: newId, reagent_id: item.reagent_id, location: '901实验室',
+            shelf_position: '待分配', purchase_order: item.purchase_order, current_quantity: 1
+          });
+        }
+
+        onLogAdd({ reagent_code: reagent.code, location: '903仓库', change_type: '-', change_amount: 1, note: '移库至901实验室' });
+        onLogAdd({ reagent_code: reagent.code, location: '901实验室', change_type: '+', change_amount: 1, note: '从903仓库移库入库' });
+      };
+
+      return html`
+        <div class="fade-in">
+          <div class="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
+            <div class="flex bg-white rounded-xl p-1 border border-gray-200 shadow-sm">
+              ${['901实验室', '903仓库'].map(tab => html`
+                <button key=${tab} onClick=${() => { setActiveTab(tab); setSearch(''); }}
+                  class="px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}">
+                  ${tab}
+                </button>
+              `)}
+            </div>
+            <div class="flex-1 relative">
+              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
+              <input type="text" placeholder="搜索试剂、采购单号或自定义字段..." value=${search}
+                onInput=${e => setSearch(e.target.value)}
+                class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm" />
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="bg-gray-50 border-b border-gray-200">
+                    <th class="text-left px-5 py-3.5 font-semibold text-gray-600">试剂名称</th>
+                    <th class="text-left px-5 py-3.5 font-semibold text-gray-600 w-24">简写</th>
+                    ${customFields.map(cf => html`<th key=${cf.id} class="text-left px-5 py-3.5 font-semibold text-gray-600 text-xs">${cf.label}</th>`)}
+                    <th class="text-left px-5 py-3.5 font-semibold text-gray-600">采购单号</th>
+                    <th class="text-left px-5 py-3.5 font-semibold text-gray-600">货架位置</th>
+                    <th class="text-center px-5 py-3.5 font-semibold text-gray-600 w-48">数量操作</th>
+                    ${activeTab === '903仓库' && html`<th class="text-center px-5 py-3.5 font-semibold text-gray-600 w-32">移库</th>`}
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  ${filteredInventory.map(item => html`
+                    <tr key=${item.id} class="hover:bg-gray-50/50 transition-colors">
+                      <td class="px-5 py-4">
+                        <div class="font-medium text-gray-800">${item.reagent?.name}</div>
+                        <div class="text-xs text-gray-400 mt-0.5">${item.reagent?.brand}</div>
+                      </td>
+                      <td class="px-5 py-4">
+                        <span class="inline-block px-2 py-0.5 bg-secondary/10 text-secondary text-xs font-bold rounded">${item.reagent?.code}</span>
+                      </td>
+                      ${customFields.map(cf => html`
+                        <td key=${cf.id} class="px-5 py-4 text-gray-500 text-xs">${item.reagent?.custom?.[cf.id] || '—'}</td>
+                      `)}
+                      <td class="px-5 py-4 text-gray-600 font-mono text-xs">${item.purchase_order}</td>
+                      <td class="px-5 py-4 text-gray-600">${item.shelf_position}</td>
+                      <td class="px-5 py-4">
+                        <div class="flex justify-center">
+                          <${QuantityStepper} quantity=${item.current_quantity}
+                            onChange=${val => handleQuantityChange(item.id, val)} />
+                        </div>
+                      </td>
+                      ${activeTab === '903仓库' && html`
+                        <td class="px-5 py-4 text-center">
+                          <button onClick=${() => handleTransfer(item.id)}
+                            disabled=${item.current_quantity <= 0}
+                            class="stepper-btn inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white ${item.current_quantity <= 0 ? 'bg-gray-300 cursor-not-allowed' : 'bg-primary hover:bg-blue-800 shadow-sm'}"
+                            title="从903移1瓶到901">
+                            <span>→</span> 移入901
+                          </button>
+                        </td>
+                      `}
+                    </tr>
+                  `)}
+                </tbody>
+              </table>
+            </div>
+            ${filteredInventory.length === 0 && html`
+              <div class="text-center py-16 text-gray-400">
+                <div class="text-5xl mb-3 opacity-50">📦</div>
+                <p>该库房暂无匹配的库存记录</p>
+              </div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+
+    // ==================== 操作记录 ====================
+
+    function LogView({ logs, reagents }) {
+      const [search, setSearch] = useState('');
+      const [filterAction, setFilterAction] = useState(''); // '' | '入库' | '出库'
+      const [expandedGroups, setExpandedGroups] = useState(new Set());
+
+      // 按 日期+试剂+动作 合并
+      const groups = useMemo(() => {
+        const map = {};
+        [...logs].reverse().forEach(log => {
+          const date = log.timestamp.slice(0, 10);
+          const action = log.change_type === '+' ? '入库' : '出库';
+          const key = `${date}_${log.reagent_code}_${action}`;
+          if (!map[key]) {
+            map[key] = { key, date, reagent_code: log.reagent_code, action, total: 0, logs: [] };
+          }
+          map[key].total += log.change_amount;
+          map[key].logs.push(log);
+        });
+        return Object.values(map).sort((a, b) => {
+          if (b.date !== a.date) return b.date.localeCompare(a.date);
+          return b.logs[0].timestamp.localeCompare(a.logs[0].timestamp);
+        });
+      }, [logs]);
+
+      const toggleExpand = (key) => {
+        setExpandedGroups(prev => {
+          const next = new Set(prev);
+          if (next.has(key)) next.delete(key);
+          else next.add(key);
+          return next;
+        });
+      };
+
+      const filteredGroups = useMemo(() => {
+        return groups.filter(g => {
+          const r = reagents.find(rg => rg.code === g.reagent_code);
+          const matchSearch = !search || g.reagent_code.toLowerCase().includes(search.toLowerCase()) || (r?.name || '').toLowerCase().includes(search.toLowerCase());
+          const matchAction = !filterAction || g.action === filterAction;
+          return matchSearch && matchAction;
+        });
+      }, [groups, search, filterAction, reagents]);
+
+      const handleExport = () => {
+        const data = filteredGroups.map(g => ({
+          日期: g.date,
+          试剂简写: g.reagent_code,
+          试剂名称: reagents.find(r => r.code === g.reagent_code)?.name || '',
+          动作: g.action,
+          数量: g.total,
+          明细笔数: g.logs.length,
+        }));
+        exportToCSV(data, `试剂出入库记录_${new Date().toISOString().slice(0,10)}.csv`);
+      };
+
+      return html`
+        <div class="fade-in">
+          <div class="flex flex-col lg:flex-row lg:items-center gap-4 mb-6">
+            <div class="flex-1 relative">
+              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
+              <input type="text" placeholder="搜索试剂简写或名称..." value=${search}
+                onInput=${e => setSearch(e.target.value)}
+                class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm" />
+            </div>
+            <div class="flex bg-white rounded-xl p-1 border border-gray-200 shadow-sm">
+              ${[['', '全部'], ['入库', '入库'], ['出库', '出库']].map(([val, label]) => html`
+                <button key=${val} onClick=${() => setFilterAction(val)}
+                  class="px-4 py-2 rounded-lg text-sm font-medium transition-all ${filterAction === val ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}">
+                  ${label}
+                </button>
+              `)}
+            </div>
+            <button onClick=${handleExport}
+              class="flex items-center justify-center gap-2 px-5 py-2.5 bg-accent hover:bg-green-700 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
+              <span>⬇</span> 导出 CSV
+            </button>
+          </div>
+
+          <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="bg-gray-50 border-b border-gray-200">
+                  <th class="text-left px-5 py-3.5 font-semibold text-gray-600 w-10"></th>
+                  <th class="text-left px-5 py-3.5 font-semibold text-gray-600">日期</th>
+                  <th class="text-left px-5 py-3.5 font-semibold text-gray-600">试剂</th>
+                  <th class="text-center px-5 py-3.5 font-semibold text-gray-600 w-24">动作</th>
+                  <th class="text-center px-5 py-3.5 font-semibold text-gray-600 w-24">数量</th>
+                  <th class="text-left px-5 py-3.5 font-semibold text-gray-600">备注摘要</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                ${filteredGroups.map(g => html`
+                  <tr key=${g.key} class="hover:bg-gray-50/50 transition-colors cursor-pointer" onClick=${() => toggleExpand(g.key)}>
+                    <td class="px-5 py-3.5 text-center text-gray-400 text-xs select-none">${expandedGroups.has(g.key) ? '▼' : '▶'}</td>
+                    <td class="px-5 py-3.5 text-gray-700 font-medium">${g.date}</td>
+                    <td class="px-5 py-3.5">
+                      <span class="inline-block px-2 py-0.5 bg-primary/10 text-primary text-xs font-bold rounded mr-2">${g.reagent_code}</span>
+                      <span class="text-gray-700">${reagents.find(r => r.code === g.reagent_code)?.name}</span>
+                    </td>
+                    <td class="px-5 py-3.5 text-center">
+                      <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold ${g.action === '入库' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}">${g.action}</span>
+                    </td>
+                    <td class="px-5 py-3.5 text-center font-bold text-lg ${g.action === '入库' ? 'text-green-600' : 'text-red-500'}">${g.total}</td>
+                    <td class="px-5 py-3.5 text-gray-400 text-xs">${g.logs.length > 1 ? `共 ${g.logs.length} 笔明细` : (g.logs[0]?.note || '')}</td>
+                  </tr>
+                  ${expandedGroups.has(g.key) && html`
+                    <tr class="bg-gray-50/60">
+                      <td class="px-5 py-2"></td>
+                      <td colspan="5" class="px-5 py-2">
+                        <div class="text-xs space-y-1">
+                          ${g.logs.map((log, i) => html`
+                            <div key=${i} class="flex items-center gap-4 text-gray-500 py-0.5 border-b border-gray-100 last:border-0">
+                              <span class="w-32 text-gray-400">${formatDate(log.timestamp)}</span>
+                              <span class="w-20">${log.location}</span>
+                              <span class="w-16 font-mono">${log.change_type}${log.change_amount}</span>
+                              <span>${log.note}</span>
+                            </div>
+                          `)}
+                        </div>
+                      </td>
+                    </tr>
+                  `}
+                `)}
+              </tbody>
+            </table>
+            ${filteredGroups.length === 0 && html`
+              <div class="text-center py-16 text-gray-400">
+                <div class="text-5xl mb-3 opacity-50">📋</div>
+                <p>暂无操作记录</p>
+              </div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    // ==================== 试剂管理（含字段配置 + 动态表单） ====================
+
+    function ReagentManager({ reagents, inventory, fields, onReagentsChange, onInventoryChange, onFieldsChange }) {
+      const [showAdd, setShowAdd] = useState(false);
+      const [showImport, setShowImport] = useState(false);
+      const [showFieldConfig, setShowFieldConfig] = useState(false);
+      const [editingReagent, setEditingReagent] = useState(null);
+      const [form, setForm] = useState({ name: '', code: '', brand: '', custom: {} });
+      const [csvText, setCsvText] = useState('');
+      const fileRef = useRef(null);
+
+      const customFields = fields.filter(f => !f.builtin);
+      const allFields = fields;
+
+      // 重置表单
+      const resetForm = () => {
+        const emptyCustom = {};
+        customFields.forEach(f => emptyCustom[f.id] = '');
+        setForm({ name: '', code: '', brand: '', custom: emptyCustom });
+      };
+
+      const openAdd = () => { resetForm(); setEditingReagent(null); setShowAdd(true); };
+      const openEdit = (r) => {
+        const custom = { ...r.custom };
+        customFields.forEach(f => { if (!(f.id in custom)) custom[f.id] = ''; });
+        setForm({ name: r.name, code: r.code, brand: r.brand, custom });
+        setEditingReagent(r);
+        setShowAdd(true);
+      };
+
+      const handleSave = () => {
+        if (!form.name.trim() || !form.code.trim()) return alert('试剂名称和简写代码必填');
+        const codeUpper = form.code.trim().toUpperCase();
+        const codeExists = reagents.some(r => r.code.toLowerCase() === codeUpper.toLowerCase() && r.id !== editingReagent?.id);
+        if (codeExists) return alert('简写代码已存在，请更换');
+
+        if (editingReagent) {
+          // 编辑
+          onReagentsChange(reagents.map(r => r.id === editingReagent.id ? {
+            ...r, name: form.name.trim(), code: codeUpper, brand: form.brand.trim(), custom: { ...form.custom }
+          } : r));
+        } else {
+          // 新增
+          const newId = Math.max(...reagents.map(r => r.id), 0) + 1;
+          onReagentsChange([...reagents, {
+            id: newId, name: form.name.trim(), code: codeUpper, brand: form.brand.trim() || '未标注', custom: { ...form.custom }
+          }]);
+          const newInvId = Math.max(...inventory.map(i => i.id), 0) + 1;
+          onInventoryChange([...inventory, {
+            id: newInvId, reagent_id: newId, location: '903仓库',
+            shelf_position: '待分配', purchase_order: '手动录入', current_quantity: 0
+          }]);
+        }
+        setShowAdd(false);
+      };
+
+      const handleDelete = (id) => {
+        if (!confirm('确定删除该试剂？关联的库存记录也将被移除。')) return;
+        onReagentsChange(reagents.filter(r => r.id !== id));
+        onInventoryChange(inventory.filter(inv => inv.reagent_id !== id));
+      };
+
+      const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => setCsvText(ev.target.result);
+        reader.readAsText(file);
+      };
+
+      const handleImportCSV = () => {
+        if (!csvText.trim()) return alert('请先上传或粘贴CSV内容');
+        const rows = parseCSV(csvText);
+        if (rows.length === 0) return alert('CSV格式错误或为空');
+
+        // 构建字段映射：CSV列名 -> 字段id
+        const csvHeaders = Object.keys(rows[0]);
+        const fieldMap = {};
+        allFields.forEach(f => {
+          // 优先匹配label，再匹配id
+          const matched = csvHeaders.find(h => h === f.label || h === f.id || h.toLowerCase() === f.label.toLowerCase());
+          if (matched) fieldMap[matched] = f.id;
+        });
+
+        let added = 0, skipped = 0;
+        let nextReagentId = Math.max(...reagents.map(r => r.id), 0) + 1;
+        let nextInvId = Math.max(...inventory.map(i => i.id), 0) + 1;
+        const newReagents = [...reagents];
+        const newInventory = [...inventory];
+
+        rows.forEach(row => {
+          const name = (row.name || row.试剂名称 || row[fieldMap['name']] || '').trim();
+          const code = (row.code || row.简写 || row.简写代码 || row[fieldMap['code']] || '').trim().toUpperCase();
+          const brand = (row.brand || row.品牌 || row[fieldMap['brand']] || '未标注').trim();
+          if (!name || !code) { skipped++; return; }
+          if (newReagents.some(r => r.code.toLowerCase() === code.toLowerCase())) { skipped++; return; }
+
+          // 提取自定义字段
+          const custom = {};
+          customFields.forEach(f => {
+            const matchedHeader = csvHeaders.find(h => fieldMap[h] === f.id);
+            if (matchedHeader) custom[f.id] = row[matchedHeader] || '';
+          });
+
+          newReagents.push({ id: nextReagentId++, name, code, brand, custom });
+          newInventory.push({ id: nextInvId++, reagent_id: nextReagentId - 1, location: '903仓库', shelf_position: '待分配', purchase_order: 'CSV导入', current_quantity: 0 });
+          added++;
+        });
+
+        if (added > 0) {
+          onReagentsChange(newReagents);
+          onInventoryChange(newInventory);
+          setCsvText('');
+          setShowImport(false);
+          alert(`成功导入 ${added} 个试剂，跳过 ${skipped} 个（重复或字段缺失）`);
+        } else {
+          alert('未导入任何试剂，请检查CSV格式（需包含 name/code 列）');
+        }
+      };
+
+      // 字段配置
+      const [newFieldLabel, setNewFieldLabel] = useState('');
+      const handleAddField = () => {
+        const label = newFieldLabel.trim();
+        if (!label) return;
+        if (customFields.some(f => f.label === label)) return alert('该字段名称已存在');
+        const newId = 'cf_' + (Math.max(...customFields.map(f => parseInt(f.id.replace('cf_', '')) || 0), 0) + 1);
+        onFieldsChange([...fields, { id: newId, label, type: 'text', builtin: false, required: false }]);
+        setNewFieldLabel('');
+      };
+      const handleRemoveField = (fieldId) => {
+        if (!confirm('删除字段后，所有试剂在该字段上的数据将丢失，确定继续？')) return;
+        onFieldsChange(fields.filter(f => f.id !== fieldId));
+        // 清理试剂数据中的该字段
+        onReagentsChange(reagents.map(r => {
+          const custom = { ...r.custom };
+          delete custom[fieldId];
+          return { ...r, custom };
+        }));
+      };
+      const handleMoveField = (index, direction) => {
+        const newFields = [...fields];
+        const targetIndex = index + direction;
+        if (targetIndex < BUILTIN_FIELDS.length || targetIndex >= newFields.length) return;
+        [newFields[index], newFields[targetIndex]] = [newFields[targetIndex], newFields[index]];
+        onFieldsChange(newFields);
+      };
+
+      const sampleCSV = (() => {
+        const cols = allFields.map(f => f.label);
+        const example = allFields.map(f => {
+          if (f.id === 'name') return '葡萄糖';
+          if (f.id === 'code') return 'P01';
+          if (f.id === 'brand') return 'Sigma-Aldrich';
+          return '';
+        });
+        return cols.join(',') + '\n' + example.join(',');
+      })();
+
+      return html`
+        <div class="fade-in">
+          <div class="flex items-center justify-between mb-6">
+            <h2 class="text-lg font-bold text-gray-800">试剂基础管理 <span class="text-sm font-normal text-gray-400 ml-2">共 ${reagents.length} 种</span></h2>
+            <div class="flex gap-2">
+              <button onClick=${() => setShowFieldConfig(true)}
+                class="flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-200 rounded-xl hover:border-primary hover:text-primary transition-all text-sm font-medium text-gray-600">
+                <span>⚙</span> 字段配置
+              </button>
+              <button onClick=${() => setShowImport(true)}
+                class="flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-200 rounded-xl hover:border-primary hover:text-primary transition-all text-sm font-medium text-gray-600">
+                <span>📤</span> CSV导入
+              </button>
+              <button onClick=${openAdd}
+                class="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-blue-800 text-white rounded-xl text-sm font-medium transition-colors shadow-sm">
+                <span>＋</span> 新增试剂
+              </button>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="bg-gray-50 border-b border-gray-200">
+                  ${allFields.map(f => html`<th key=${f.id} class="text-left px-5 py-3.5 font-semibold text-gray-600 ${f.builtin ? '' : 'text-xs'}">${f.label}${f.required ? html`<span class="text-danger ml-0.5">*</span>` : ''}</th>`)}
+                  <th class="text-center px-5 py-3.5 font-semibold text-gray-600 w-24">操作</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100">
+                ${reagents.map(r => html`
+                  <tr key=${r.id} class="hover:bg-gray-50/50 transition-colors">
+                    ${allFields.map(f => html`
+                      <td key=${f.id} class="px-5 py-4 ${f.builtin ? '' : 'text-gray-500 text-xs'}">
+                        ${f.builtin
+                          ? (f.id === 'code'
+                              ? html`<span class="inline-block px-2 py-0.5 bg-secondary/10 text-secondary text-xs font-bold rounded">${r[f.id]}</span>`
+                              : html`<span class="font-medium text-gray-800">${r[f.id]}</span>`)
+                          : (r.custom?.[f.id] || html`<span class="text-gray-300">—</span>`)
+                        }
+                      </td>
+                    `)}
+                    <td class="px-5 py-4 text-center">
+                      <button onClick=${() => openEdit(r)} class="text-gray-400 hover:text-primary transition-colors text-sm mr-3" title="编辑">✏</button>
+                      <button onClick=${() => handleDelete(r.id)} class="text-gray-400 hover:text-danger transition-colors text-sm" title="删除">🗑</button>
+                    </td>
+                  </tr>
+                `)}
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 新增/编辑试剂弹窗 -->
+          ${showAdd && html`
+            <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onClick=${() => setShowAdd(false)}>
+              <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick=${e => e.stopPropagation()}>
+                <h3 class="text-lg font-bold text-gray-800 mb-4">${editingReagent ? '编辑试剂' : '新增试剂'}</h3>
+                <div class="space-y-3">
+                  ${allFields.map(f => html`
+                    <div key=${f.id}>
+                      <label class="block text-xs font-medium text-gray-500 mb-1">${f.label}${f.required ? html`<span class="text-danger ml-0.5">*</span>` : ''}</label>
+                      ${f.builtin ? html`
+                        <input value=${form[f.id]} 
+                          onInput=${e => setForm({...form, [f.id]: e.target.value})}
+                          class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-primary text-sm ${f.id === 'code' ? 'font-mono uppercase' : ''}"
+                          placeholder=${f.id === 'code' ? '如：P01' : f.id === 'name' ? '如：葡萄糖' : ''} />
+                      ` : html`
+                        <input value=${form.custom?.[f.id] || ''}
+                          onInput=${e => setForm({...form, custom: {...form.custom, [f.id]: e.target.value}})}
+                          class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-primary text-sm"
+                          placeholder="可选" />
+                      `}
+                    </div>
+                  `)}
+                </div>
+                <div class="flex gap-3 mt-6">
+                  <button onClick=${() => setShowAdd(false)} class="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors">取消</button>
+                  <button onClick=${handleSave} class="flex-1 py-2.5 rounded-xl bg-primary hover:bg-blue-800 text-white text-sm font-medium transition-colors shadow-sm">${editingReagent ? '保存修改' : '确认添加'}</button>
+                </div>
+              </div>
+            </div>
+          `}
+
+          <!-- CSV导入弹窗 -->
+          ${showImport && html`
+            <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onClick=${() => setShowImport(false)}>
+              <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6" onClick=${e => e.stopPropagation()}>
+                <h3 class="text-lg font-bold text-gray-800 mb-2">CSV批量导入试剂</h3>
+                <p class="text-xs text-gray-500 mb-4">列名会自动匹配字段名称。支持字段：${allFields.map(f => f.label).join('、')}。重复code自动跳过。</p>
+                <div class="mb-3">
+                  <input type="file" accept=".csv" ref=${fileRef} onChange=${handleFileUpload} class="hidden" />
+                  <button onClick=${() => fileRef.current?.click()}
+                    class="w-full py-2.5 rounded-xl border-2 border-dashed border-gray-300 hover:border-primary hover:text-primary text-gray-500 text-sm font-medium transition-colors">
+                    📁 点击上传CSV文件
+                  </button>
+                </div>
+                <textarea value=${csvText} onInput=${e => setCsvText(e.target.value)}
+                  placeholder=${'或者在此粘贴CSV内容...\n' + sampleCSV}
+                  class="w-full h-40 px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-primary text-xs font-mono resize-none" />
+                <div class="flex gap-3 mt-4">
+                  <button onClick=${() => setShowImport(false)} class="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors">取消</button>
+                  <button onClick=${handleImportCSV} class="flex-1 py-2.5 rounded-xl bg-accent hover:bg-green-700 text-white text-sm font-medium transition-colors shadow-sm">确认导入</button>
+                </div>
+              </div>
+            </div>
+          `}
+
+          <!-- 字段配置弹窗 -->
+          ${showFieldConfig && html`
+            <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onClick=${() => setShowFieldConfig(false)}>
+              <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick=${e => e.stopPropagation()}>
+                <h3 class="text-lg font-bold text-gray-800 mb-4">字段配置</h3>
+                <p class="text-xs text-gray-500 mb-4">以下为基础字段（不可修改）：${BUILTIN_FIELDS.map(f => f.label).join('、')}</p>
+                
+                <div class="space-y-2 mb-4">
+                  ${customFields.map((f, idx) => html`
+                    <div key=${f.id} class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
+                      <span class="flex-1 text-sm text-gray-700">${f.label}</span>
+                      <div class="flex gap-1">
+                        <button onClick=${() => handleMoveField(BUILTIN_FIELDS.length + idx, -1)} disabled=${BUILTIN_FIELDS.length + idx <= BUILTIN_FIELDS.length}
+                          class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-primary hover:bg-white disabled:opacity-30 text-xs">↑</button>
+                        <button onClick=${() => handleMoveField(BUILTIN_FIELDS.length + idx, 1)} disabled=${BUILTIN_FIELDS.length + idx >= fields.length - 1}
+                          class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-primary hover:bg-white disabled:opacity-30 text-xs">↓</button>
+                        <button onClick=${() => handleRemoveField(f.id)}
+                          class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-danger hover:bg-white text-xs">✕</button>
+                      </div>
+                    </div>
+                  `)}
+                  ${customFields.length === 0 && html`<p class="text-xs text-gray-400 text-center py-2">暂无自定义字段</p>`}
+                </div>
+
+                <div class="flex gap-2 mb-6">
+                  <input value=${newFieldLabel} onInput=${e => setNewFieldLabel(e.target.value)}
+                    onKeyDown=${e => e.key === 'Enter' && handleAddField()}
+                    class="flex-1 px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-primary text-sm"
+                    placeholder="新字段名称，如：CAS号" />
+                  <button onClick=${handleAddField}
+                    class="px-4 py-2 bg-primary hover:bg-blue-800 text-white rounded-lg text-sm font-medium transition-colors">添加</button>
+                </div>
+
+                <button onClick=${() => setShowFieldConfig(false)}
+                  class="w-full py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors">关闭</button>
+              </div>
+            </div>
+          `}
+        </div>
+      `;
+    }
+
+    // ==================== 位置视图 ====================
+
+    function LayoutView({ reagents, inventory, layouts, onLayoutsChange }) {
+      const [activeLocation, setActiveLocation] = useState('901实验室');
+      const [viewMode, setViewMode] = useState('overview');
+      const [selectedItem, setSelectedItem] = useState(null);
+      const [isEditing, setIsEditing] = useState(false);
+      const [showEditor, setShowEditor] = useState(false);
+      const [editorType, setEditorType] = useState('');
+      const [editorData, setEditorData] = useState(null);
+      const [hoveredCell, setHoveredCell] = useState(null);
+      const [showCellDetail, setShowCellDetail] = useState(null);
+      const [dragging, setDragging] = useState(null);
+      const [draggingDrawerId, setDraggingDrawerId] = useState(null);
+      const [draggingShelfRow, setDraggingShelfRow] = useState(null);
+      const [innerDragging, setInnerDragging] = useState(null);
+      const canvasRef = useRef(null);
+
+      const layout = layouts[activeLocation] || { type: 'lab', workbenches: [] };
+
+      const getInventoryAt = useCallback((position) => {
+        return inventory
+          .filter(inv => inv.location === activeLocation && inv.shelf_position === position)
+          .map(inv => ({ ...inv, reagent: reagents.find(r => r.id === inv.reagent_id) }))
+          .filter(inv => inv.reagent);
+      }, [inventory, activeLocation, reagents]);
+
+      const getTotalAt = useCallback((position) => {
+        return getInventoryAt(position).reduce((sum, inv) => sum + inv.current_quantity, 0);
+      }, [getInventoryAt]);
+
+      const getStatus = useCallback((position) => {
+        const total = getTotalAt(position);
+        if (total === 0) return 'empty';
+        if (total < 5) return 'low';
+        return 'ok';
+      }, [getTotalAt]);
+
+      const openEditor = (type, data, parentId) => {
+        setEditorType(type);
+        setEditorData({ type, data: data || {}, parentId });
+        setShowEditor(true);
+      };
+
+      const saveEditor = (data) => {
+        const newLayout = JSON.parse(JSON.stringify(layout));
+        if (editorType === 'workbench') {
+          const idx = newLayout.workbenches.findIndex(w => w.id === data.id);
+          if (idx >= 0) newLayout.workbenches[idx] = data;
+          else newLayout.workbenches.push({ ...data, id: 'wb_' + Date.now() });
+        } else if (editorType === 'drawer') {
+          const wb = newLayout.workbenches.find(w => w.id === editorData.parentId);
+          if (wb) {
+            const idx = wb.drawers.findIndex(d => d.id === data.id);
+            if (idx >= 0) wb.drawers[idx] = data;
+            else {
+              wb.drawers.push({ ...data, id: 'dw_' + Date.now() });
+              delete wb.innerLayout;
+            }
+          }
+        } else if (editorType === 'zone') {
+          const idx = newLayout.zones.findIndex(z => z.id === data.id);
+          if (idx >= 0) newLayout.zones[idx] = data;
+          else newLayout.zones.push({ ...data, id: 'zn_' + Date.now() });
+        } else if (editorType === 'rack') {
+          const zone = newLayout.zones.find(z => z.id === editorData.parentId);
+          if (zone) {
+            const idx = zone.racks.findIndex(r => r.id === data.id);
+            if (idx >= 0) zone.racks[idx] = data;
+            else zone.racks.push({ ...data, id: 'rk_' + Date.now() });
+          }
+        } else if (editorType === 'cabinet') {
+          const zone = newLayout.zones.find(z => z.id === editorData.parentId);
+          if (zone) {
+            const idx = zone.cabinets.findIndex(c => c.id === data.id);
+            if (idx >= 0) zone.cabinets[idx] = data;
+            else zone.cabinets.push({ ...data, id: 'cb_' + Date.now() });
+          }
+        }
+        onLayoutsChange({ ...layouts, [activeLocation]: newLayout });
+        setShowEditor(false);
+      };
+
+      const deleteItem = (type, id, parentId) => {
+        if (!confirm('确定删除？')) return;
+        const newLayout = JSON.parse(JSON.stringify(layout));
+        if (type === 'workbench') {
+          newLayout.workbenches = newLayout.workbenches.filter(w => w.id !== id);
+        } else if (type === 'drawer') {
+          const wb = newLayout.workbenches.find(w => w.id === parentId);
+          if (wb) {
+            wb.drawers = wb.drawers.filter(d => d.id !== id);
+            delete wb.innerLayout;
+          }
+        } else if (type === 'zone') {
+          newLayout.zones = newLayout.zones.filter(z => z.id !== id);
+        } else if (type === 'rack') {
+          const zone = newLayout.zones.find(z => z.id === parentId);
+          if (zone) zone.racks = zone.racks.filter(r => r.id !== id);
+        } else if (type === 'cabinet') {
+          const zone = newLayout.zones.find(z => z.id === parentId);
+          if (zone) zone.cabinets = zone.cabinets.filter(c => c.id !== id);
+        }
+        onLayoutsChange({ ...layouts, [activeLocation]: newLayout });
+      };
+
+      const resetLayout = () => {
+        if (!confirm('确定重置布局？所有位置数据将恢复到默认。')) return;
+        const defaults = INITIAL_LAYOUTS[activeLocation];
+        onLayoutsChange({ ...layouts, [activeLocation]: JSON.parse(JSON.stringify(defaults)) });
+      };
+
+      const handleCanvasMouseDown = (e, item, action) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!canvasRef.current) return;
+        const rect = canvasRef.current.getBoundingClientRect();
+        setDragging({
+          itemId: item.id,
+          action,
+          startX: e.clientX,
+          startY: e.clientY,
+          itemX: item.position?.x || 0,
+          itemY: item.position?.y || 0,
+          itemW: item.position?.w || 50,
+          itemH: item.position?.h || 30,
+          containerW: rect.width,
+          containerH: rect.height,
+        });
+      };
+
+      useEffect(() => {
+        if (!dragging) return;
+        const handleMove = (e) => {
+          const { itemId, action, startX, startY, itemX, itemY, itemW, itemH, containerW, containerH } = dragging;
+          const dx = ((e.clientX - startX) / containerW) * 100;
+          const dy = ((e.clientY - startY) / containerH) * 100;
+          const newLayout = JSON.parse(JSON.stringify(layout));
+          const items = newLayout.type === 'lab' ? newLayout.workbenches : newLayout.zones;
+          const item = items.find(i => i.id === itemId);
+          if (!item) return;
+          if (!item.position) item.position = { x: 5, y: 5, w: 40, h: 30 };
+          if (action === 'move') {
+            item.position.x = Math.max(0, Math.min(100 - item.position.w, itemX + dx));
+            item.position.y = Math.max(0, Math.min(100 - item.position.h, itemY + dy));
+          } else if (action === 'resize') {
+            item.position.w = Math.max(15, Math.min(100 - item.position.x, itemW + dx));
+            item.position.h = Math.max(15, Math.min(100 - item.position.y, itemH + dy));
+          }
+          onLayoutsChange({ ...layouts, [activeLocation]: newLayout });
+        };
+        const handleUp = () => setDragging(null);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleUp);
+        return () => {
+          window.removeEventListener('mousemove', handleMove);
+          window.removeEventListener('mouseup', handleUp);
+        };
+      }, [dragging]);
+
+      const handleInnerMouseDown = (e, wbId, itemType, itemId, action) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const cardEl = e.currentTarget.closest('.workbench-card');
+        if (!cardEl) return;
+        const rect = cardEl.getBoundingClientRect();
+        const wb = layout.workbenches.find(w => w.id === wbId);
+        if (!wb) return;
+        const innerLayout = getDefaultInnerLayout(wb);
+        let item;
+        if (itemType === 'shelf') {
+          item = innerLayout.shelves.find(s => s.row === itemId);
+        } else {
+          item = innerLayout.drawers.find(d => d.id === itemId);
+        }
+        if (!item) return;
+        setInnerDragging({
+          wbId, itemType, itemId, action,
+          startX: e.clientX, startY: e.clientY,
+          itemX: item.x, itemY: item.y,
+          itemW: item.w, itemH: item.h,
+          containerW: rect.width, containerH: rect.height,
+        });
+      };
+
+      useEffect(() => {
+        if (!innerDragging) return;
+        const handleMove = (e) => {
+          const { wbId, itemType, itemId, action, startX, startY, itemX, itemY, itemW, itemH, containerW, containerH } = innerDragging;
+          const dx = ((e.clientX - startX) / containerW) * 100;
+          const dy = ((e.clientY - startY) / containerH) * 100;
+          const newLayout = JSON.parse(JSON.stringify(layout));
+          const targetWb = newLayout.workbenches.find(w => w.id === wbId);
+          if (!targetWb) return;
+          const innerLayout = getDefaultInnerLayout(targetWb);
+          if (itemType === 'shelf') {
+            const shelfItem = innerLayout.shelves.find(s => s.row === itemId);
+            if (!shelfItem) return;
+            if (action === 'move') {
+              shelfItem.x = Math.max(0, Math.min(98 - shelfItem.w, itemX + dx));
+              shelfItem.y = Math.max(0, Math.min(98 - shelfItem.h, itemY + dy));
+            } else if (action === 'resize') {
+              shelfItem.w = Math.max(5, Math.min(100 - shelfItem.x, itemW + dx));
+              shelfItem.h = Math.max(5, Math.min(100 - shelfItem.y, itemH + dy));
+            }
+          } else {
+            const drawerItem = innerLayout.drawers.find(d => d.id === itemId);
+            if (!drawerItem) return;
+            if (action === 'move') {
+              drawerItem.x = Math.max(0, Math.min(98 - drawerItem.w, itemX + dx));
+              drawerItem.y = Math.max(0, Math.min(98 - drawerItem.h, itemY + dy));
+            } else if (action === 'resize') {
+              drawerItem.w = Math.max(5, Math.min(100 - drawerItem.x, itemW + dx));
+              drawerItem.h = Math.max(5, Math.min(100 - drawerItem.y, itemH + dy));
+            }
+          }
+          targetWb.innerLayout = innerLayout;
+          onLayoutsChange({ ...layouts, [activeLocation]: newLayout });
+        };
+        const handleUp = () => setInnerDragging(null);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleUp);
+        return () => {
+          window.removeEventListener('mousemove', handleMove);
+          window.removeEventListener('mouseup', handleUp);
+        };
+      }, [innerDragging]);
+
+      const renderWorkbenchMini = (wb) => {
+        const innerLayout = getDefaultInnerLayout(wb);
+        return html`
+          <div class="relative w-full h-full workbench-card">
+            ${innerLayout.shelves.map(s => {
+              const label = getShelfLabel(wb.shelf, s.row, 0);
+              const invs = getInventoryAt(label);
+              const total = invs.reduce((s, i) => s + i.current_quantity, 0);
+              const status = total === 0 ? 'empty' : total < 5 ? 'low' : 'ok';
+              return html`
+                <div key=${'s-' + s.row}
+                  class="absolute rounded-[2px] ${status === 'empty' ? 'bg-gray-200' : status === 'low' ? 'bg-red-400' : 'bg-green-500'} flex items-center justify-center overflow-hidden ${isEditing ? 'cursor-move ring-1 ring-white/50' : ''}"
+                  style=${{ left: s.x + '%', top: s.y + '%', width: s.w + '%', height: s.h + '%' }}
+                  onMouseDown=${e => isEditing && handleInnerMouseDown(e, wb.id, 'shelf', s.row, 'move')}>
+                  ${total > 0 && html`<span class="text-[6px] text-white font-bold leading-none truncate px-1">${total}</span>`}
+                  ${isEditing && html`
+                    <div class="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize flex items-end justify-end"
+                      onMouseDown=${e => { e.stopPropagation(); handleInnerMouseDown(e, wb.id, 'shelf', s.row, 'resize'); }}>
+                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M1 7L7 1M7 1H3M7 1V5" stroke="white" stroke-width="1.5"/></svg>
+                    </div>
+                  `}
+                </div>
+              `;
+            })}
+            ${innerLayout.drawers.map(d => {
+              const drawer = wb.drawers.find(wd => wd.id === d.id);
+              const invs = getInventoryAt(d.id);
+              const total = invs.reduce((s, i) => s + i.current_quantity, 0);
+              const status = total === 0 ? 'empty' : total < 5 ? 'low' : 'ok';
+              return html`
+                <div key=${'d-' + d.id}
+                  class="absolute rounded-[2px] ${status === 'empty' ? 'bg-gray-200 border border-gray-300' : status === 'low' ? 'bg-red-400' : 'bg-green-500'} flex items-center justify-center overflow-hidden ${isEditing ? 'cursor-move ring-1 ring-white/50' : ''}"
+                  style=${{ left: d.x + '%', top: d.y + '%', width: d.w + '%', height: d.h + '%' }}
+                  onMouseDown=${e => isEditing && handleInnerMouseDown(e, wb.id, 'drawer', d.id, 'move')}>
+                  ${total > 0 && html`<span class="text-[7px] text-white font-bold leading-none truncate px-1">${total}</span>`}
+                  ${isEditing && html`
+                    <div class="absolute bottom-0 right-0 w-3 h-3 cursor-se-resize flex items-end justify-end"
+                      onMouseDown=${e => { e.stopPropagation(); handleInnerMouseDown(e, wb.id, 'drawer', d.id, 'resize'); }}>
+                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none"><path d="M1 7L7 1M7 1H3M7 1V5" stroke="white" stroke-width="1.5"/></svg>
+                    </div>
+                  `}
+                </div>
+              `;
+            })}
+          </div>
+        `;
+      };
+
+      const renderZoneMini = (zone) => {
+        const rackRows = [];
+        zone.racks.forEach(rack => {
+          const rowOrder = rack.rowOrder || Array.from({ length: rack.rows }, (_, i) => i);
+          rowOrder.forEach(physicalRow => {
+            const row = [];
+            for (let c = 0; c < rack.cols; c++) {
+              const label = getShelfLabel(rack, physicalRow, c);
+              const invs = getInventoryAt(label);
+              const total = invs.reduce((s, i) => s + i.current_quantity, 0);
+              const status = total === 0 ? 'empty' : total < 5 ? 'low' : 'ok';
+              row.push({ status, total });
+            }
+            rackRows.push(row);
+          });
+        });
+        const cabinets = zone.cabinets.map(c => {
+          const invs = getInventoryAt(c.prefix);
+          const total = invs.reduce((s, i) => s + i.current_quantity, 0);
+          const status = total === 0 ? 'empty' : total < 5 ? 'low' : 'ok';
+          return { ...c, status, total };
+        });
+        return html`
+          <div class="flex flex-col h-full p-[3px] gap-[2px]">
+            <div class="flex flex-col gap-[2px]">
+              ${rackRows.map((row, ri) => html`
+                <div key=${ri} class="flex gap-[2px] h-3">
+                  ${row.map((cell, ci) => html`
+                    <div key=${ci} class="flex-1 rounded-[2px] h-full ${cell.status === 'empty' ? 'bg-gray-200' : cell.status === 'low' ? 'bg-red-400' : 'bg-green-500'} flex items-center justify-center">
+                      ${cell.total > 0 && html`<span class="text-[6px] text-white font-bold leading-none">${cell.total}</span>`}
+                    </div>
+                  `)}
+                </div>
+              `)}
+            </div>
+            <div class="flex-1"></div>
+            ${cabinets.length > 0 && html`
+              <div class="flex gap-[2px] shrink-0 h-5">
+                ${cabinets.map(c => html`
+                  <div key=${c.id} class="flex-1 rounded-[2px] ${c.status === 'empty' ? 'bg-gray-200 border border-gray-300' : c.status === 'low' ? 'bg-red-400' : 'bg-green-500'} flex items-center justify-center">
+                    ${c.total > 0 && html`<span class="text-[7px] text-white font-bold leading-none">${c.total}</span>`}
+                  </div>
+                `)}
+              </div>
+            `}
+          </div>
+        `;
+      };
+
+      const renderShelfGrid = (shelf, type, parentWbId, draggable) => {
+        const rowOrder = shelf.rowOrder || Array.from({ length: shelf.rows }, (_, i) => i);
+        return html`
+          <div class="space-y-2">
+            ${rowOrder.map((physicalRow, displayIndex) => {
+              const label = getShelfLabel(shelf, physicalRow, 0);
+              const invs = getInventoryAt(label);
+              const total = invs.reduce((s, i) => s + i.current_quantity, 0);
+              const status = total === 0 ? 'empty' : total < 5 ? 'low' : 'ok';
+              const bg = status === 'empty' ? 'bg-gray-100 border-gray-200' : status === 'low' ? 'bg-red-50 border-red-300' : 'bg-green-50 border-green-300';
+              const text = status === 'empty' ? 'text-gray-400' : status === 'low' ? 'text-red-600' : 'text-green-700';
+              return html`
+                <div key=${displayIndex}
+                  draggable=${draggable}
+                  onDragStart=${() => setDraggingShelfRow({ wbId: parentWbId, displayIndex })}
+                  onDragOver=${e => e.preventDefault()}
+                  onDrop=${e => {
+                    e.preventDefault();
+                    if (!draggingShelfRow || draggingShelfRow.wbId !== parentWbId || draggingShelfRow.displayIndex === displayIndex) { setDraggingShelfRow(null); return; }
+                    const newLayout = JSON.parse(JSON.stringify(layout));
+                    const targetWb = newLayout.workbenches.find(w => w.id === parentWbId);
+                    if (!targetWb) return;
+                    const currentRowOrder = targetWb.shelf.rowOrder || Array.from({ length: targetWb.shelf.rows }, (_, i) => i);
+                    const fromIdx = draggingShelfRow.displayIndex;
+                    const toIdx = displayIndex;
+                    const newRowOrder = [...currentRowOrder];
+                    [newRowOrder[fromIdx], newRowOrder[toIdx]] = [newRowOrder[toIdx], newRowOrder[fromIdx]];
+                    targetWb.shelf = { ...targetWb.shelf, rowOrder: newRowOrder };
+                    onLayoutsChange({ ...layouts, [activeLocation]: newLayout });
+                    setDraggingShelfRow(null);
+                  }}
+                  class="flex gap-2 ${draggable ? 'cursor-move' : ''}">
+                  <div
+                    class="flex-1 min-h-[48px] rounded-lg border-2 ${bg} flex flex-col items-center justify-center cursor-pointer hover:brightness-95 transition-all"
+                    onClick=${() => setShowCellDetail({ label, invs, total })}
+                    onMouseEnter=${e => setHoveredCell({ label, invs, total, x: e.clientX, y: e.clientY })}
+                    onMouseLeave=${() => setHoveredCell(null)}>
+                    <span class="text-[9px] text-gray-400 font-mono">${label}</span>
+                    ${total > 0 && html`<span class="text-sm font-bold ${text}">${total}</span>`}
+                  </div>
+                </div>
+              `;
+            })}
+          </div>
+        `;
+      };
+
+      const renderDrawer = (drawer, parentId, type) => {
+        const invs = getInventoryAt(drawer.prefix);
+        const total = invs.reduce((s, i) => s + i.current_quantity, 0);
+        const status = total === 0 ? 'empty' : total < 5 ? 'low' : 'ok';
+        const bg = status === 'empty' ? 'bg-gray-100 border-gray-300' : status === 'low' ? 'bg-red-50 border-red-400' : 'bg-green-50 border-green-400';
+        const text = status === 'empty' ? 'text-gray-400' : status === 'low' ? 'text-red-600' : 'text-green-700';
+        return html`
+          <div
+            class="flex-1 min-h-[80px] rounded-lg border-2 ${bg} flex flex-col items-center justify-center cursor-pointer hover:brightness-95 transition-all relative"
+            style=${{ borderRadius: type === 'drawer' ? '4px 4px 12px 12px' : '4px' }}
+            onClick=${() => setShowCellDetail({ label: drawer.prefix, invs, total })}
+            onMouseEnter=${e => setHoveredCell({ label: drawer.prefix, invs, total, x: e.clientX, y: e.clientY })}
+            onMouseLeave=${() => setHoveredCell(null)}>
+            ${isEditing && html`
+              <div class="absolute top-1 right-1 flex gap-1">
+                <button onClick=${e => { e.stopPropagation(); openEditor(type === 'drawer' ? 'drawer' : 'cabinet', drawer, parentId); }} class="text-[10px] text-gray-400 hover:text-primary">✏</button>
+                <button onClick=${e => { e.stopPropagation(); deleteItem(type === 'drawer' ? 'drawer' : 'cabinet', drawer.id, parentId); }} class="text-[10px] text-gray-400 hover:text-danger">✕</button>
+              </div>
+            `}
+            <span class="text-xs font-medium text-gray-600">${drawer.name}</span>
+            <span class="text-[9px] text-gray-400 font-mono">${drawer.prefix}</span>
+            ${total > 0 ? html`<span class="text-sm font-bold ${text} mt-1">${total}</span>` : html`<span class="text-xs text-gray-300 mt-1">空</span>`}
+          </div>
+        `;
+      };
+
+      const renderLabOverview = () => {
+        return html`
+          <div class="space-y-4">
+            ${layout.workbenches.map(wb => {
+              const positions = [];
+              const rowOrder = wb.shelf.rowOrder || Array.from({ length: wb.shelf.rows }, (_, i) => i);
+              for (let displayIdx = 0; displayIdx < rowOrder.length; displayIdx++) {
+                const physicalRow = rowOrder[displayIdx];
+                for (let c = 0; c < wb.shelf.cols; c++) positions.push(getShelfLabel(wb.shelf, physicalRow, c));
+              }
+              wb.drawers.forEach(d => positions.push(d.prefix));
+              const totalItems = positions.reduce((sum, pos) => sum + getTotalAt(pos), 0);
+              const totalTypes = positions.filter(pos => getTotalAt(pos) > 0).length;
+              const hasLow = positions.some(pos => getStatus(pos) === 'low');
+              const hasStock = positions.some(pos => getStatus(pos) === 'ok');
+              const borderColor = hasLow ? 'border-red-300' : hasStock ? 'border-green-300' : 'border-gray-200';
+              const bgColor = hasLow ? 'bg-red-50' : hasStock ? 'bg-green-50' : 'bg-gray-50';
+              const textColor = hasLow ? 'text-red-600' : hasStock ? 'text-green-600' : 'text-gray-400';
+              const heatmap = positions.slice(0, 16).map(pos => {
+                const s = getStatus(pos);
+                return s === 'empty' ? '⚪' : s === 'low' ? '🔴' : '🟢';
+              }).join('') + (positions.length > 16 ? '…' : '');
+              return html`
+                <div key=${wb.id}
+                  onClick=${() => { setSelectedItem(wb); setViewMode('detail'); }}
+                  class="cursor-pointer rounded-xl border-2 ${borderColor} ${bgColor} p-4 transition-all hover:shadow-md relative">
+                  ${isEditing && html`
+                    <div class="absolute top-2 right-2 flex gap-1">
+                      <button onClick=${e => { e.stopPropagation(); openEditor('workbench', wb); }} class="text-xs text-gray-400 hover:text-primary">✏</button>
+                      <button onClick=${e => { e.stopPropagation(); deleteItem('workbench', wb.id); }} class="text-xs text-gray-400 hover:text-danger">✕</button>
+                    </div>
+                  `}
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                      <div class="w-12 h-5 rounded border-2" style=${{ borderColor: wb.style?.border || '#CBD5E0', background: wb.style?.surface || '#F1F5F9' }}></div>
+                      <div>
+                        <h3 class="font-bold text-gray-800">${wb.name}</h3>
+                        <p class="text-xs text-gray-500">架子 ${wb.shelf.rows}层 | 抽屉 ${wb.drawers.length}个</p>
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <div class="text-2xl font-bold ${textColor}">${totalTypes}<span class="text-sm text-gray-400 font-normal">种</span></div>
+                      <div class="text-xs text-gray-400">共${totalItems}瓶</div>
+                    </div>
+                  </div>
+                  <div class="mt-2 text-[10px] tracking-wider text-gray-400">${heatmap}</div>
+                </div>
+              `;
+            })}
+          </div>
+        `;
+      };
+
+      const renderWarehouseOverview = () => {
+        return html`
+          <div class="space-y-4">
+            ${layout.zones.map(zone => {
+              const positions = [];
+              zone.racks.forEach(rack => {
+                const rowOrder = rack.rowOrder || Array.from({ length: rack.rows }, (_, i) => i);
+                for (let displayIdx = 0; displayIdx < rowOrder.length; displayIdx++) {
+                  const physicalRow = rowOrder[displayIdx];
+                  for (let c = 0; c < rack.cols; c++) positions.push(getShelfLabel(rack, physicalRow, c));
+                }
+              });
+              zone.cabinets.forEach(c => positions.push(c.prefix));
+              const totalItems = positions.reduce((sum, pos) => sum + getTotalAt(pos), 0);
+              const totalTypes = positions.filter(pos => getTotalAt(pos) > 0).length;
+              const hasLow = positions.some(pos => getStatus(pos) === 'low');
+              const hasStock = positions.some(pos => getStatus(pos) === 'ok');
+              const borderColor = hasLow ? 'border-red-300' : hasStock ? 'border-green-300' : 'border-gray-200';
+              const bgColor = hasLow ? 'bg-red-50' : hasStock ? 'bg-green-50' : 'bg-gray-50';
+              const textColor = hasLow ? 'text-red-600' : hasStock ? 'text-green-600' : 'text-gray-400';
+              const heatmap = positions.slice(0, 16).map(pos => {
+                const s = getStatus(pos);
+                return s === 'empty' ? '⚪' : s === 'low' ? '🔴' : '🟢';
+              }).join('') + (positions.length > 16 ? '…' : '');
+              return html`
+                <div key=${zone.id}
+                  onClick=${() => { setSelectedItem(zone); setViewMode('detail'); }}
+                  class="cursor-pointer rounded-xl border-2 ${borderColor} ${bgColor} p-4 transition-all hover:shadow-md relative">
+                  ${isEditing && html`
+                    <div class="absolute top-2 right-2 flex gap-1">
+                      <button onClick=${e => { e.stopPropagation(); openEditor('zone', zone); }} class="text-xs text-gray-400 hover:text-primary">✏</button>
+                      <button onClick=${e => { e.stopPropagation(); deleteItem('zone', zone.id); }} class="text-xs text-gray-400 hover:text-danger">✕</button>
+                    </div>
+                  `}
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                      <div class="w-8 h-8 rounded border-2" style=${{ borderColor: zone.style?.border || '#CBD5E0', background: zone.style?.bg || '#F1F5F9' }}></div>
+                      <div>
+                        <h3 class="font-bold text-gray-800">${zone.name}</h3>
+                        <p class="text-xs text-gray-500">货架 ${zone.racks.length}组 | 货柜 ${zone.cabinets.length}个</p>
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <div class="text-2xl font-bold ${textColor}">${totalTypes}<span class="text-sm text-gray-400 font-normal">种</span></div>
+                      <div class="text-xs text-gray-400">共${totalItems}瓶</div>
+                    </div>
+                  </div>
+                  <div class="mt-2 text-[10px] tracking-wider text-gray-400">${heatmap}</div>
+                </div>
+              `;
+            })}
+          </div>
+        `;
+      };
+
+      const renderWorkbenchDetail = (wb) => {
+        return html`
+          <div class="fade-in">
+            <div class="flex items-center gap-3 mb-4">
+              <button onClick=${() => setViewMode('overview')} class="text-gray-500 hover:text-primary text-sm font-medium">← 返回总览</button>
+              <h2 class="text-lg font-bold text-gray-800">${wb.name}</h2>
+            </div>
+            <div class="mb-6">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-500">🗄 架子</h3>
+                ${isEditing && html`<button onClick=${() => openEditor('workbench', wb)} class="text-xs text-primary hover:underline">编辑架子</button>`}
+              </div>
+              <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                ${renderShelfGrid(wb.shelf, 'shelf', wb.id, isEditing)}
+              </div>
+            </div>
+            <div class="mb-6 px-4">
+              <div class="h-4 bg-gradient-to-b from-gray-200 to-gray-300 rounded-sm border border-gray-300 shadow-inner"></div>
+              <div class="text-center text-[10px] text-gray-400 mt-1">— 工作台面 —</div>
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="text-sm font-semibold text-gray-500">🗄 抽屉</h3>
+                ${isEditing && html`<button onClick=${() => openEditor('drawer', null, wb.id)} class="text-xs text-primary hover:underline">+ 添加抽屉</button>`}
+              </div>
+              <div class="flex gap-3">
+                ${wb.drawers.map(drawer => {
+                  const invs = getInventoryAt(drawer.prefix);
+                  const total = invs.reduce((s, i) => s + i.current_quantity, 0);
+                  const status = total === 0 ? 'empty' : total < 5 ? 'low' : 'ok';
+                  const bg = status === 'empty' ? 'bg-gray-100 border-gray-300' : status === 'low' ? 'bg-red-50 border-red-400' : 'bg-green-50 border-green-400';
+                  const text = status === 'empty' ? 'text-gray-400' : status === 'low' ? 'text-red-600' : 'text-green-700';
+                  return html`
+                    <div key=${drawer.id}
+                      draggable=${isEditing}
+                      onDragStart=${() => setDraggingDrawerId(drawer.id)}
+                      onDragOver=${e => e.preventDefault()}
+                      onDrop=${e => {
+                        e.preventDefault();
+                        if (!draggingDrawerId || draggingDrawerId === drawer.id) { setDraggingDrawerId(null); return; }
+                        const newLayout = JSON.parse(JSON.stringify(layout));
+                        const targetWb = newLayout.workbenches.find(w => w.id === wb.id);
+                        if (!targetWb) return;
+                        const fromIdx = targetWb.drawers.findIndex(d => d.id === draggingDrawerId);
+                        const toIdx = targetWb.drawers.findIndex(d => d.id === drawer.id);
+                        if (fromIdx < 0 || toIdx < 0) return;
+                        const [removed] = targetWb.drawers.splice(fromIdx, 1);
+                        targetWb.drawers.splice(toIdx, 0, removed);
+                        onLayoutsChange({ ...layouts, [activeLocation]: newLayout });
+                        setDraggingDrawerId(null);
+                      }}
+                      class="flex-1 min-h-[80px] rounded-lg border-2 ${bg} flex flex-col items-center justify-center ${isEditing ? 'cursor-move' : 'cursor-pointer hover:brightness-95'} transition-all relative"
+                      style=${{ borderRadius: '4px 4px 12px 12px' }}
+                      onClick=${() => !isEditing && setShowCellDetail({ label: drawer.prefix, invs, total })}>
+                      ${isEditing && html`
+                        <div class="absolute top-1 right-1 flex gap-1">
+                          <button onClick=${e => { e.stopPropagation(); openEditor('drawer', drawer, wb.id); }} class="text-[10px] text-gray-400 hover:text-primary">✏</button>
+                          <button onClick=${e => { e.stopPropagation(); deleteItem('drawer', drawer.id, wb.id); }} class="text-[10px] text-gray-400 hover:text-danger">✕</button>
+                        </div>
+                      `}
+                      <span class="text-xs font-medium text-gray-600">${drawer.name}</span>
+                      <span class="text-[9px] text-gray-400 font-mono">${drawer.prefix}</span>
+                      ${total > 0 ? html`<span class="text-sm font-bold ${text} mt-1">${total}</span>` : html`<span class="text-xs text-gray-300 mt-1">空</span>`}
+                    </div>
+                  `;
+                })}
+              </div>
+            </div>
+          </div>
+        `;
+      };
+
+      const renderZoneDetail = (zone) => {
+        return html`
+          <div class="fade-in">
+            <div class="flex items-center gap-3 mb-4">
+              <button onClick=${() => setViewMode('overview')} class="text-gray-500 hover:text-primary text-sm font-medium">← 返回总览</button>
+              <h2 class="text-lg font-bold text-gray-800">${zone.name}</h2>
+            </div>
+            ${zone.racks.map(rack => html`
+              <div key=${rack.id} class="mb-6">
+                <div class="flex items-center justify-between mb-2">
+                  <h3 class="text-sm font-semibold text-gray-500">${rack.name}</h3>
+                  ${isEditing && html`<button onClick=${() => openEditor('rack', rack, zone.id)} class="text-xs text-primary hover:underline">编辑</button>`}
+                </div>
+                <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+                  ${renderShelfGrid(rack, 'rack', null, false)}
+                </div>
+              </div>
+            `)}
+            ${zone.cabinets.length > 0 && html`
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <h3 class="text-sm font-semibold text-gray-500">🗄 货柜</h3>
+                  ${isEditing && html`<button onClick=${() => openEditor('cabinet', null, zone.id)} class="text-xs text-primary hover:underline">+ 添加货柜</button>`}
+                </div>
+                <div class="flex gap-3">
+                  ${zone.cabinets.map(cabinet => renderDrawer(cabinet, zone.id, 'cabinet'))}
+                </div>
+              </div>
+            `}
+          </div>
+        `;
+      };
+
+      return html`
+        <div class="fade-in">
+          <div class="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
+            <div class="flex bg-white rounded-xl p-1 border border-gray-200 shadow-sm">
+              ${['901实验室', '903仓库'].map(loc => html`
+                <button key=${loc} onClick=${() => { setActiveLocation(loc); setViewMode('overview'); setSelectedItem(null); }}
+                  class="px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeLocation === loc ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}">
+                  ${loc}
+                </button>
+              `)}
+            </div>
+            <div class="flex-1"></div>
+            ${viewMode === 'overview' && html`
+              <button onClick=${() => setIsEditing(!isEditing)}
+                class="flex items-center gap-1.5 px-4 py-2 ${isEditing ? 'bg-primary text-white' : 'bg-white border border-gray-200 text-gray-600 hover:text-primary'} rounded-xl text-sm font-medium transition-all shadow-sm">
+                <span>✏</span> ${isEditing ? '完成编辑' : '编辑布局'}
+              </button>
+            `}
+          </div>
+
+          ${isEditing && viewMode === 'overview' && html`
+            <div class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+              <p class="text-sm text-blue-800 font-medium mb-1">画布编辑模式</p>
+              <p class="text-xs text-blue-600">拖拽卡片移动位置，拖拽右下角手柄调整大小。</p>
+              <div class="flex gap-2 mt-2">
+                <button onClick=${() => openEditor(layout.type === 'lab' ? 'workbench' : 'zone', null)}
+                  class="px-4 py-2 bg-primary hover:bg-blue-800 text-white rounded-lg text-sm font-medium transition-colors shadow-sm">＋ 添加${layout.type === 'lab' ? '实验台' : '区域'}</button>
+                <button onClick=${resetLayout}
+                  class="px-4 py-2 bg-white border border-gray-200 text-gray-600 hover:text-primary rounded-lg text-sm font-medium transition-colors">重置布局</button>
+              </div>
+            </div>
+            <div ref=${canvasRef} class="relative w-full rounded-xl border border-gray-300 overflow-hidden select-none"
+              style=${{ height: '600px', background: '#f8fafc', backgroundImage: 'linear-gradient(#e2e8f0 1px, transparent 1px), linear-gradient(90deg, #e2e8f0 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+              ${(layout.type === 'lab' ? layout.workbenches : layout.zones).map(item => html`
+                <div key=${item.id}
+                  class="absolute rounded-lg border-2 bg-white shadow-md cursor-move overflow-hidden flex flex-col"
+                  style=${{ left: (item.position?.x || 5) + '%', top: (item.position?.y || 5) + '%', width: (item.position?.w || 40) + '%', height: (item.position?.h || 30) + '%', borderColor: item.style?.border || '#94a3b8' }}
+                  onMouseDown=${e => handleCanvasMouseDown(e, item, 'move')}
+                  onDblClick=${() => { setSelectedItem(item); setViewMode('detail'); setIsEditing(false); }}>
+                  <div class="px-2 py-1 bg-slate-100 border-b border-slate-200 flex items-center justify-between shrink-0">
+                    <span class="text-xs font-bold text-slate-700 truncate">${item.name}</span>
+                    <div class="flex gap-1">
+                      <button onClick=${e => { e.stopPropagation(); openEditor(layout.type === 'lab' ? 'workbench' : 'zone', item); }} class="text-[10px] text-gray-400 hover:text-primary">✏</button>
+                      <button onClick=${e => { e.stopPropagation(); deleteItem(layout.type === 'lab' ? 'workbench' : 'zone', item.id); }} class="text-[10px] text-gray-400 hover:text-danger">✕</button>
+                    </div>
+                  </div>
+                  <div class="flex-1 min-h-0 overflow-hidden">
+                    ${layout.type === 'lab' ? renderWorkbenchMini(item) : renderZoneMini(item)}
+                  </div>
+                  <div class="absolute bottom-0 right-0 w-5 h-5 cursor-se-resize flex items-center justify-center hover:bg-slate-200 rounded-tl-lg"
+                    onMouseDown=${e => handleCanvasMouseDown(e, item, 'resize')}>
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 9L9 1M9 1H3M9 1V7" stroke="#94a3b8" stroke-width="1.5"/></svg>
+                  </div>
+                </div>
+              `)}
+            </div>
+          `}
+
+          ${!isEditing && viewMode === 'overview' && html`
+            <div class="relative w-full rounded-xl border border-gray-200 overflow-hidden bg-white shadow-sm" style=${{ height: '600px', background: '#f8fafc', backgroundImage: 'linear-gradient(#e2e8f0 1px, transparent 1px), linear-gradient(90deg, #e2e8f0 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
+              ${(layout.type === 'lab' ? layout.workbenches : layout.zones).map(item => {
+                const positions = [];
+                if (layout.type === 'lab') {
+                  const rowOrder = item.shelf.rowOrder || Array.from({ length: item.shelf.rows }, (_, i) => i);
+                  for (let displayIdx = 0; displayIdx < rowOrder.length; displayIdx++) {
+                    const physicalRow = rowOrder[displayIdx];
+                    for (let c = 0; c < item.shelf.cols; c++) positions.push(getShelfLabel(item.shelf, physicalRow, c));
+                  }
+                  item.drawers.forEach(d => positions.push(d.prefix));
+                } else {
+                  item.racks.forEach(rack => {
+                    const rowOrder = rack.rowOrder || Array.from({ length: rack.rows }, (_, i) => i);
+                    for (let displayIdx = 0; displayIdx < rowOrder.length; displayIdx++) {
+                      const physicalRow = rowOrder[displayIdx];
+                      for (let c = 0; c < rack.cols; c++) positions.push(getShelfLabel(rack, physicalRow, c));
+                    }
+                  });
+                  item.cabinets.forEach(c => positions.push(c.prefix));
+                }
+                const totalTypes = positions.filter(pos => getTotalAt(pos) > 0).length;
+                const totalItems = positions.reduce((sum, pos) => sum + getTotalAt(pos), 0);
+                const hasLow = positions.some(pos => getStatus(pos) === 'low');
+                const hasStock = positions.some(pos => getStatus(pos) === 'ok');
+                const borderColor = hasLow ? 'border-red-300' : hasStock ? 'border-green-300' : 'border-gray-200';
+                const bgColor = hasLow ? 'bg-red-50' : hasStock ? 'bg-green-50' : 'bg-gray-50';
+                return html`
+                  <div key=${item.id}
+                    onClick=${() => { setSelectedItem(item); setViewMode('detail'); }}
+                    class="absolute rounded-lg border-2 ${bgColor} ${borderColor} shadow-sm cursor-pointer hover:shadow-md transition-all overflow-hidden flex flex-col select-none"
+                    style=${{ left: (item.position?.x || 5) + '%', top: (item.position?.y || 5) + '%', width: (item.position?.w || 40) + '%', height: (item.position?.h || 30) + '%' }}>
+                    <div class="px-3 py-2 bg-white/60 border-b ${borderColor} flex items-center justify-between shrink-0">
+                      <span class="text-sm font-bold text-gray-800">${item.name}</span>
+                      <span class="text-xs ${hasLow ? 'text-red-500' : hasStock ? 'text-green-600' : 'text-gray-400'} font-medium">${totalTypes}种 | ${totalItems}瓶</span>
+                    </div>
+                    <div class="flex-1 min-h-0 overflow-hidden">
+                      ${layout.type === 'lab' ? renderWorkbenchMini(item) : renderZoneMini(item)}
+                    </div>
+                  </div>
+                `;
+              })}
+            </div>
+          `}
+
+          ${viewMode === 'detail' && selectedItem && html`
+            <div class="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+              ${layout.type === 'lab' ? renderWorkbenchDetail(selectedItem) : renderZoneDetail(selectedItem)}
+            </div>
+          `}
+
+          ${hoveredCell && html`
+            <div class="fixed z-50 pointer-events-none" style=${{ left: (hoveredCell.x || 0) + 15 + 'px', top: (hoveredCell.y || 0) + 'px' }}>
+              <div class="bg-gray-900 text-white rounded-lg shadow-xl px-3 py-2 text-xs max-w-xs">
+                <div class="font-bold text-gray-300 mb-1">${hoveredCell.label}</div>
+                ${hoveredCell.total === 0 ? html`<div class="text-gray-400">空位</div>` : html`
+                  <div class="space-y-1">
+                    ${hoveredCell.invs.map(item => html`
+                      <div key=${item.id} class="flex items-center gap-2">
+                        <span class="text-[10px] px-1 rounded bg-white/20">${item.reagent.code}</span>
+                        <span class="truncate">${item.reagent.name}</span>
+                        <span class="font-bold ml-auto">×${item.current_quantity}</span>
+                      </div>
+                    `)}
+                  </div>
+                `}
+              </div>
+            </div>
+          `}
+
+          ${showCellDetail && html`
+            <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onClick=${() => setShowCellDetail(null)}>
+              <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-5" onClick=${e => e.stopPropagation()}>
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="text-lg font-bold text-gray-800">${showCellDetail.label}</h3>
+                  <button onClick=${() => setShowCellDetail(null)} class="text-gray-400 hover:text-gray-600">✕</button>
+                </div>
+                ${showCellDetail.total === 0 ? html`
+                  <div class="text-center py-8 text-gray-400">
+                    <div class="text-4xl mb-2">📭</div>
+                    <p>该位置暂无试剂</p>
+                  </div>
+                ` : html`
+                  <div class="space-y-3">
+                    ${showCellDetail.invs.map(item => html`
+                      <div key=${item.id} class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">${item.reagent.code}</div>
+                        <div class="flex-1 min-w-0">
+                          <div class="font-medium text-gray-800 text-sm truncate">${item.reagent.name}</div>
+                          <div class="text-xs text-gray-400">${item.reagent.brand}</div>
+                        </div>
+                        <div class="text-right">
+                          <div class="text-lg font-bold text-primary">${item.current_quantity}</div>
+                          <div class="text-[10px] text-gray-400">${item.purchase_order}</div>
+                        </div>
+                      </div>
+                    `)}
+                  </div>
+                `}
+                <button onClick=${() => setShowCellDetail(null)} class="w-full mt-4 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors">关闭</button>
+              </div>
+            </div>
+          `}
+
+          ${showEditor && html`<${LayoutEditor} config=${editorData} onSave=${saveEditor} onCancel=${() => setShowEditor(false)} />`}
+        </div>
+      `;
+    }
+
+    function LayoutEditor({ config, onSave, onCancel }) {
+      const { type, data, parentId } = config;
+      const isNew = !data.id;
+      const [form, setForm] = useState(() => {
+        if (type === 'workbench') return {
+          id: data.id || '', name: data.name || '',
+          style: data.style || { bg: '#F8FAFC', border: '#CBD5E0', surface: '#F1F5F9' },
+          shelf: data.shelf || { rows: 1, cols: 1, prefix: '' },
+          drawers: data.drawers || [],
+          drawerCount: (data.drawers || []).length
+        };
+        if (type === 'drawer') return {
+          id: data.id || '', name: data.name || '', prefix: data.prefix || '',
+          style: data.style || { bg: '#E2E8F0', border: '#94A3B8' }
+        };
+        if (type === 'zone') return {
+          id: data.id || '', name: data.name || '',
+          style: data.style || { bg: '#F1F5F9', border: '#CBD5E0' },
+          racks: data.racks || [], cabinets: data.cabinets || []
+        };
+        if (type === 'rack') return {
+          id: data.id || '', name: data.name || '', rows: data.rows || 4, cols: data.cols || 1, prefix: data.prefix || ''
+        };
+        if (type === 'cabinet') return {
+          id: data.id || '', name: data.name || '', prefix: data.prefix || '',
+          style: data.style || { bg: '#E2E8F0', border: '#94A3B8' }
+        };
+        return {};
+      });
+
+      const handleSave = () => {
+        if (type === 'workbench') {
+          if (!form.name.trim() || !form.shelf.prefix.trim()) return alert('名称和架子编码前缀必填');
+          let newShelf = { ...form.shelf, prefix: form.shelf.prefix.trim().toUpperCase(), cols: 1 };
+          // 层数改变时重置 rowOrder
+          if (newShelf.rows !== (data.shelf?.rows || 1)) {
+            newShelf.rowOrder = Array.from({ length: newShelf.rows }, (_, i) => i);
+          } else if (data.shelf?.rowOrder) {
+            newShelf.rowOrder = data.shelf.rowOrder;
+          }
+          // 根据 drawerCount 生成/调整抽屉
+          const prefix = form.shelf.prefix.trim().toUpperCase();
+          let drawers = [...(form.drawers || [])];
+          const targetCount = Math.max(0, Math.min(10, Number(form.drawerCount) || 0));
+          if (targetCount > drawers.length) {
+            for (let i = drawers.length; i < targetCount; i++) {
+              drawers.push({
+                id: `${prefix}-D${i + 1}`,
+                name: `抽屉${i + 1}`,
+                prefix: `${prefix}-D${i + 1}`,
+                style: { bg: '#E2E8F0', border: '#94A3B8' }
+              });
+            }
+          } else if (targetCount < drawers.length) {
+            drawers = drawers.slice(0, targetCount);
+          }
+          const { drawerCount, innerLayout: _il, ...restForm } = form;
+          const preserveInnerLayout = (data.shelf?.rows || 1) === newShelf.rows && (data.drawers?.length || 0) === drawers.length;
+          const result = { ...restForm, name: form.name.trim(), shelf: newShelf, drawers };
+          if (preserveInnerLayout && data.innerLayout) {
+            result.innerLayout = data.innerLayout;
+          }
+          onSave(result);
+        } else if (type === 'drawer') {
+          if (!form.name.trim() || !form.prefix.trim()) return alert('名称和编码前缀必填');
+          onSave({ ...form, name: form.name.trim(), prefix: form.prefix.trim().toUpperCase() });
+        } else if (type === 'zone') {
+          if (!form.name.trim()) return alert('区域名称必填');
+          onSave({ ...form, name: form.name.trim() });
+        } else if (type === 'rack') {
+          if (!form.name.trim() || !form.prefix.trim()) return alert('名称和编码前缀必填');
+          let newForm = { ...form, name: form.name.trim(), prefix: form.prefix.trim().toUpperCase(), cols: 1 };
+          if (newForm.rows !== (data.rows || 4)) {
+            newForm.rowOrder = Array.from({ length: newForm.rows }, (_, i) => i);
+          } else if (data.rowOrder) {
+            newForm.rowOrder = data.rowOrder;
+          }
+          onSave(newForm);
+        } else if (type === 'cabinet') {
+          if (!form.name.trim() || !form.prefix.trim()) return alert('名称和编码前缀必填');
+          onSave({ ...form, name: form.name.trim(), prefix: form.prefix.trim().toUpperCase() });
+        }
+      };
+
+      const titles = { workbench: '实验台', drawer: '抽屉', zone: '区域', rack: '货架', cabinet: '货柜' };
+
+      return html`
+        <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onClick=${onCancel}>
+          <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick=${e => e.stopPropagation()}>
+            <h3 class="text-lg font-bold text-gray-800 mb-4">${isNew ? '添加' : '编辑'}${titles[type]}</h3>
+            <div class="space-y-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-500 mb-1">名称 *</label>
+                <input value=${form.name || ''} onInput=${e => setForm({...form, name: e.target.value})}
+                  class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-primary text-sm" placeholder="如：实验台A" />
+              </div>
+              ${(type === 'workbench' || type === 'rack') && html`
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">编码前缀 *</label>
+                    <input value=${form.shelf?.prefix || form.prefix || ''}
+                      onInput=${e => type === 'workbench' ? setForm({...form, shelf: {...form.shelf, prefix: e.target.value}}) : setForm({...form, prefix: e.target.value})}
+                      class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-primary text-sm font-mono uppercase" placeholder="如：A" />
+                  </div>
+                  <div></div>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">架子层数</label>
+                    <input type="number" min="1" max="10" value=${form.shelf?.rows || form.rows || 1}
+                      onInput=${e => type === 'workbench' ? setForm({...form, shelf: {...form.shelf, rows: Number(e.target.value)}}) : setForm({...form, rows: Number(e.target.value)})}
+                      class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-primary text-sm" />
+                  </div>
+                  ${type === 'workbench' && html`
+                    <div>
+                      <label class="block text-xs font-medium text-gray-500 mb-1">抽屉数量</label>
+                      <input type="number" min="0" max="10" value=${form.drawerCount || 0}
+                        onInput=${e => setForm({...form, drawerCount: Number(e.target.value)})}
+                        class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-primary text-sm" />
+                    </div>
+                  `}
+                  ${type === 'rack' && html`<div></div>`}
+                </div>
+              `}
+              ${(type === 'drawer' || type === 'cabinet') && html`
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1">编码前缀 *</label>
+                  <input value=${form.prefix || ''} onInput=${e => setForm({...form, prefix: e.target.value})}
+                    class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-primary text-sm font-mono uppercase" placeholder="如：A-D1" />
+                </div>
+              `}
+              ${(type === 'workbench' || type === 'rack') && html`
+                <div class="p-2 bg-gray-50 rounded-lg">
+                  <p class="text-[10px] text-gray-500">编码预览：</p>
+                  <div class="text-[10px] text-gray-400 font-mono mt-1">
+                    ${Array.from({length: Math.min(6, form.shelf?.rows || form.rows || 3)}).map((_, r) => html`
+                      <span key=${r} class="mr-3">${getShelfLabel({ prefix: (form.shelf?.prefix || form.prefix || '?').toUpperCase(), rows: form.shelf?.rows || form.rows || 3, cols: 1 }, r, 0)}</span>
+                    `)}
+                    ${(form.shelf?.rows || form.rows || 3) > 6 && html`<span class="text-gray-300">...</span>`}
+                  </div>
+                </div>
+              `}
+            </div>
+            <div class="flex gap-3 mt-6">
+              <button onClick=${onCancel} class="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors">取消</button>
+              <button onClick=${handleSave} class="flex-1 py-2.5 rounded-xl bg-primary hover:bg-blue-800 text-white text-sm font-medium transition-colors shadow-sm">保存</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ==================== 顶部导航 ====================
+
+    function Navbar({ activeView, onChange, syncStatus, onSync }) {
+      const views = [
+        { id: 'aggregate', label: '全局总览', icon: '📊' },
+        { id: 'segmented', label: '分仓明细', icon: '🏭' },
+        { id: 'layout', label: '位置视图', icon: '🗺' },
+        { id: 'logs', label: '操作记录', icon: '🕐' },
+        { id: 'reagents', label: '试剂管理', icon: '🧪' },
+      ];
+      const syncColors = {
+        idle: 'bg-white/10 text-white/80 hover:bg-white/20',
+        syncing: 'bg-yellow-500/20 text-yellow-300',
+        synced: 'bg-green-500/20 text-green-300',
+        error: 'bg-red-500/20 text-red-300',
+      };
+      const syncLabels = {
+        idle: '☁ 同步',
+        syncing: '⟳ 同步中',
+        synced: '✓ 已同步',
+        error: '✕ 同步失败',
+      };
+      return html`
+        <nav class="bg-primary text-white shadow-lg sticky top-0 z-40">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6">
+            <div class="flex items-center justify-between h-16">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 bg-white/15 rounded-lg flex items-center justify-center backdrop-blur-sm text-lg">🧪</div>
+                <div>
+                  <h1 class="font-bold text-base tracking-tight">Synaura Reagent</h1>
+                  <p class="text-[10px] text-white/60 -mt-0.5">Reagent Inventory System</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="flex items-center gap-1 bg-white/10 rounded-xl p-1">
+                  ${views.map(v => html`
+                    <button key=${v.id} onClick=${() => onChange(v.id)}
+                      class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${activeView === v.id ? 'bg-white text-primary shadow-sm' : 'text-white/80 hover:text-white hover:bg-white/10'}">
+                      <span>${v.icon}</span><span class="hidden sm:inline">${v.label}</span>
+                    </button>
+                  `)}
+                </div>
+                ${onSync && html`
+                  <button onClick=${onSync} disabled=${syncStatus === 'syncing'}
+                    class="px-3 py-1.5 rounded-xl text-sm font-medium transition-all ${syncColors[syncStatus] || syncColors.idle}">
+                    ${syncLabels[syncStatus] || syncLabels.idle}
+                  </button>
+                `}
+              </div>
+            </div>
+          </div>
+        </nav>
+      `;
+    }
+
+    // ==================== 坚果云同步模块（增量日志） ====================
+    const NutstoreSync = {
+      enabled: false,
+      baseDir: '',
+      opsDir: '',
+      initPromise: null,
+      opBuffer: [],
+      flushTimer: null,
+
+      async init() {
+        if (this.initPromise) return this.initPromise;
+        this.initPromise = this._doInit();
+        return this.initPromise;
+      },
+
+      async _doInit() {
+        if (!window.__TAURI__) {
+          console.log('[Nutstore] 非Tauri环境，跳过坚果云同步');
+          return false;
+        }
+        try {
+          const { homeDir, join } = window.__TAURI__.path;
+          const { createDir, exists } = window.__TAURI__.fs;
+          const home = await homeDir();
+          const candidates = [
+            await join(home, 'Nutstore'),
+            await join(home, '坚果云'),
+          ];
+          for (const dir of candidates) {
+            try {
+              if (await exists(dir)) {
+                this.baseDir = await join(dir, 'reagent-inventory');
+                this.opsDir = await join(this.baseDir, 'operations');
+                await createDir(this.opsDir, { recursive: true });
+                this.enabled = true;
+                console.log('[Nutstore] 同步已启用:', this.baseDir);
+                return true;
+              }
+            } catch (e) {}
+          }
+          this.baseDir = await join(home, 'reagent-inventory-sync');
+          this.opsDir = await join(this.baseDir, 'operations');
+          await createDir(this.opsDir, { recursive: true });
+          this.enabled = true;
+          console.log('[Nutstore] 使用本地回退目录:', this.baseDir);
+          return true;
+        } catch (e) {
+          console.error('[Nutstore] 初始化失败:', e);
+          return false;
+        }
+      },
+
+      // 写入快照（用于试剂、字段、布局等低频变更数据）
+      async writeSnapshot(data) {
+        await this.init();
+        if (!this.enabled) return;
+        try {
+          const { writeTextFile, join } = window.__TAURI__.fs;
+          const filepath = await join(this.baseDir, 'snapshot.json');
+          const payload = { ...data, _timestamp: Date.now(), _version: 2 };
+          await writeTextFile(filepath, JSON.stringify(payload, null, 2));
+        } catch (e) {
+          console.error('[Nutstore] 写入快照失败:', e);
+        }
+      },
+
+      // 读取快照
+      async readSnapshot() {
+        await this.init();
+        if (!this.enabled) return null;
+        try {
+          const { readTextFile, join } = window.__TAURI__.fs;
+          const filepath = await join(this.baseDir, 'snapshot.json');
+          const content = await readTextFile(filepath);
+          return JSON.parse(content);
+        } catch (e) {
+          return null;
+        }
+      },
+
+      // 写入增量操作（缓冲2秒后批量刷盘）
+      writeOperation(op) {
+        this.opBuffer.push({ ...op, timestamp_ms: Date.now() });
+        if (this.flushTimer) clearTimeout(this.flushTimer);
+        this.flushTimer = setTimeout(() => this._flushOps(), 2000);
+      },
+
+      async _flushOps() {
+        if (this.opBuffer.length === 0) return;
+        await this.init();
+        if (!this.enabled) return;
+        const ops = [...this.opBuffer];
+        this.opBuffer = [];
+        try {
+          const { writeTextFile, join } = window.__TAURI__.fs;
+          const user = 'user';
+          for (const op of ops) {
+            const filename = `op_${op.timestamp_ms}_${user}.json`;
+            const filepath = await join(this.opsDir, filename);
+            await writeTextFile(filepath, JSON.stringify(op, null, 2));
+          }
+          console.log(`[Nutstore] 已写入 ${ops.length} 条操作日志`);
+        } catch (e) {
+          console.error('[Nutstore] 写入操作日志失败:', e);
+        }
+      },
+
+      // 读取所有操作日志
+      async readAllOps() {
+        await this.init();
+        if (!this.enabled) return [];
+        try {
+          const { readDir, readTextFile, join } = window.__TAURI__.fs;
+          const entries = await readDir(this.opsDir);
+          const ops = [];
+          for (const entry of entries) {
+            if (entry.name && entry.name.startsWith('op_') && entry.name.endsWith('.json')) {
+              const filepath = await join(this.opsDir, entry.name);
+              const content = await readTextFile(filepath);
+              ops.push(JSON.parse(content));
+            }
+          }
+          ops.sort((a, b) => a.timestamp_ms - b.timestamp_ms);
+          return ops;
+        } catch (e) {
+          return [];
+        }
+      },
+
+      // 压缩：当前状态写入快照，清空操作日志
+      async compressSnapshot(data) {
+        await this.init();
+        if (!this.enabled) return;
+        try {
+          const { writeTextFile, join, removeDir, createDir } = window.__TAURI__.fs;
+          const payload = { ...data, _timestamp: Date.now(), _version: 2 };
+          await writeTextFile(await join(this.baseDir, 'snapshot.json'), JSON.stringify(payload, null, 2));
+          await removeDir(this.opsDir, { recursive: true });
+          await createDir(this.opsDir, { recursive: true });
+          console.log('[Nutstore] 已压缩快照，清空操作日志');
+        } catch (e) {
+          console.error('[Nutstore] 压缩快照失败:', e);
+        }
+      },
+    };
+
+    // ==================== 主应用 ====================
+
+    function App() {
+      const [activeView, setActiveView] = useState('aggregate');
+      const [syncStatus, setSyncStatus] = useState('idle');
+      const [lastSyncTime, setLastSyncTime] = useState(0);
+      const syncTimerRef = useRef(null);
+
+      const [reagents, setReagents] = useState(() => {
+        const saved = localStorage.getItem('ri_reagents');
+        return saved ? JSON.parse(saved) : INITIAL_REAGENTS;
+      });
+      const [inventory, setInventory] = useState(() => {
+        const saved = localStorage.getItem('ri_inventory');
+        return saved ? JSON.parse(saved) : INITIAL_INVENTORY;
+      });
+      const [logs, setLogs] = useState(() => {
+        const saved = localStorage.getItem('ri_logs');
+        return saved ? JSON.parse(saved) : INITIAL_LOGS;
+      });
+      const [fields, setFields] = useState(() => {
+        const saved = localStorage.getItem('ri_fields');
+        return saved ? JSON.parse(saved) : [...BUILTIN_FIELDS, ...INITIAL_CUSTOM_FIELDS];
+      });
+      const [layouts, setLayouts] = useState(() => {
+        const saved = localStorage.getItem('ri_layouts');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            const hasOldFormat = Object.values(parsed).some(l => l && Array.isArray(l.elements) && !l.type);
+            if (hasOldFormat) {
+              localStorage.removeItem('ri_layouts');
+              return INITIAL_LAYOUTS;
+            }
+            Object.values(parsed).forEach(layout => {
+              if (layout.type === 'lab') {
+                layout.workbenches.forEach(wb => {
+                  if (wb.shelf && wb.shelf.cols > 1) {
+                    wb.shelf.cols = 1;
+                    if (!wb.shelf.rowOrder) {
+                      wb.shelf.rowOrder = Array.from({ length: wb.shelf.rows }, (_, i) => i);
+                    }
+                  }
+                });
+              } else if (layout.type === 'warehouse') {
+                layout.zones.forEach(zone => {
+                  zone.racks.forEach(rack => {
+                    if (rack.cols > 1) {
+                      rack.cols = 1;
+                      if (!rack.rowOrder) {
+                        rack.rowOrder = Array.from({ length: rack.rows }, (_, i) => i);
+                      }
+                    }
+                  });
+                });
+              }
+            });
+            return parsed;
+          } catch (e) { return INITIAL_LAYOUTS; }
+        }
+        return INITIAL_LAYOUTS;
+      });
+
+      // localStorage 持久化
+      useEffect(() => { localStorage.setItem('ri_reagents', JSON.stringify(reagents)); }, [reagents]);
+      useEffect(() => { localStorage.setItem('ri_inventory', JSON.stringify(inventory)); }, [inventory]);
+      useEffect(() => { localStorage.setItem('ri_logs', JSON.stringify(logs)); }, [logs]);
+      useEffect(() => { localStorage.setItem('ri_fields', JSON.stringify(fields)); }, [fields]);
+      useEffect(() => { localStorage.setItem('ri_layouts', JSON.stringify(layouts)); }, [layouts]);
+
+      // 应用单条增量操作到本地状态
+      const applyOperation = useCallback((op) => {
+        if (op.action === 'update_inventory') {
+          setInventory(prev => prev.map(inv =>
+            inv.id === op.target.id ? { ...inv, [op.target.field]: op.target.newValue } : inv
+          ));
+        } else if (op.action === 'create_inventory') {
+          setInventory(prev => {
+            if (prev.some(i => i.id === op.data.id)) return prev;
+            return [...prev, op.data];
+          });
+        } else if (op.action === 'delete_inventory') {
+          setInventory(prev => prev.filter(inv => inv.id !== op.target.id));
+        } else if (op.action === 'add_log') {
+          setLogs(prev => {
+            if (prev.some(l => l.id === op.data.id)) return prev;
+            return [...prev, op.data];
+          });
+        }
+      }, []);
+
+      // 初始化：加载快照 + 重放增量操作日志
+      useEffect(() => {
+        let cancelled = false;
+        NutstoreSync.init().then(async () => {
+          const snapshot = await NutstoreSync.readSnapshot();
+          const ops = await NutstoreSync.readAllOps();
+          if (cancelled) return;
+
+          // 应用快照（低频数据 + 基础状态）
+          if (snapshot && snapshot._timestamp) {
+            const localTs = parseInt(localStorage.getItem('ri_last_sync') || '0');
+            if (snapshot._timestamp > localTs) {
+              if (snapshot.reagents) setReagents(snapshot.reagents);
+              if (snapshot.fields) setFields(snapshot.fields);
+              if (snapshot.layouts) setLayouts(snapshot.layouts);
+              if (snapshot.inventory) setInventory(snapshot.inventory);
+              if (snapshot.logs) setLogs(snapshot.logs);
+              localStorage.setItem('ri_last_sync', String(snapshot._timestamp));
+              setLastSyncTime(snapshot._timestamp);
+            }
+          }
+
+          // 重放增量操作（高频数据）
+          if (ops.length > 0) {
+            for (const op of ops) {
+              applyOperation(op);
+            }
+            localStorage.setItem('ri_last_sync', String(Date.now()));
+            setLastSyncTime(Date.now());
+          }
+
+          // 操作日志超过100条时自动压缩
+          if (ops.length > 100) {
+            setTimeout(() => {
+              NutstoreSync.compressSnapshot({ reagents, inventory, logs, fields, layouts });
+            }, 5000);
+          }
+        });
+        return () => { cancelled = true; };
+      }, []);
+
+      // 低频数据变更后防抖写入快照
+      useEffect(() => {
+        if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = setTimeout(() => {
+          NutstoreSync.writeSnapshot({ reagents, fields, layouts });
+        }, 5000);
+        return () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current); };
+      }, [reagents, fields, layouts]);
+
+      // 手动同步（上传缓冲 + 下载他人操作）
+      const handleSync = useCallback(async () => {
+        setSyncStatus('syncing');
+        try {
+          // 1. 刷出本地缓冲的操作日志
+          await NutstoreSync._flushOps();
+          // 2. 读取他人的操作日志并重放
+          const ops = await NutstoreSync.readAllOps();
+          if (ops.length > 0) {
+            for (const op of ops) {
+              applyOperation(op);
+            }
+          }
+          // 3. 写入最新快照
+          await NutstoreSync.writeSnapshot({ reagents, fields, layouts });
+          localStorage.setItem('ri_last_sync', String(Date.now()));
+          setLastSyncTime(Date.now());
+          setSyncStatus('synced');
+          setTimeout(() => setSyncStatus('idle'), 2000);
+        } catch (e) {
+          console.error('同步失败:', e);
+          setSyncStatus('error');
+          setTimeout(() => setSyncStatus('idle'), 3000);
+        }
+      }, [reagents, fields, layouts, applyOperation]);
+
+      // 库存变更：写增量日志
+      const handleInventoryChange = useCallback((itemId, newQuantityOrItem) => {
+        if (itemId === '__NEW__') {
+          setInventory(prev => {
+            const next = [...prev, newQuantityOrItem];
+            NutstoreSync.writeOperation({
+              action: 'create_inventory',
+              data: newQuantityOrItem
+            });
+            return next;
+          });
+        } else {
+          setInventory(prev => {
+            const oldItem = prev.find(inv => inv.id === itemId);
+            const next = prev.map(inv => inv.id === itemId ? { ...inv, current_quantity: newQuantityOrItem } : inv);
+            NutstoreSync.writeOperation({
+              action: 'update_inventory',
+              target: { id: itemId, field: 'current_quantity', oldValue: oldItem?.current_quantity, newValue: newQuantityOrItem }
+            });
+            return next;
+          });
+        }
+      }, []);
+
+      // 日志追加：写增量日志
+      const handleLogAdd = useCallback((logData) => {
+        const newLog = { id: Date.now() + Math.random(), timestamp: new Date().toISOString(), ...logData };
+        setLogs(prev => [...prev, newLog]);
+        NutstoreSync.writeOperation({
+          action: 'add_log',
+          data: newLog
+        });
+      }, []);
+
+      return html`
+        <div class="min-h-screen bg-bg">
+          <${Navbar} activeView=${activeView} onChange=${setActiveView} syncStatus=${syncStatus} onSync=${handleSync} />
+          <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+            ${activeView === 'aggregate' && html`<${AggregateView} reagents=${reagents} inventory=${inventory} fields=${fields} />`}
+            ${activeView === 'segmented' && html`
+              <${SegmentedView} reagents=${reagents} inventory=${inventory} fields=${fields}
+                onInventoryChange=${handleInventoryChange} onLogAdd=${handleLogAdd} />
+            `}
+            ${activeView === 'layout' && html`<${LayoutView} reagents=${reagents} inventory=${inventory} layouts=${layouts} onLayoutsChange=${setLayouts} />`}
+            ${activeView === 'logs' && html`<${LogView} logs=${logs} reagents=${reagents} />`}
+            ${activeView === 'reagents' && html`
+              <${ReagentManager} reagents=${reagents} inventory=${inventory} fields=${fields}
+                onReagentsChange=${setReagents} onInventoryChange=${setInventory} onFieldsChange=${setFields} />
+            `}
+          </main>
+        </div>
+      `;
+    }
+
+    render(html`<${App} />`, document.getElementById('root'));
+  </script>
+</head>
+<body class="bg-bg min-h-screen">
+  <div id="root"></div>
+</body>
+</html>

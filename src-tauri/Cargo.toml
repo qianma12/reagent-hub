@@ -1,0 +1,18 @@
+[package]
+name = "reagent-inventory"
+version = "1.0.0"
+description = "Reagent Hub - Inventory Management"
+edition = "2021"
+rust-version = "1.70"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.5", features = [ "dialog-all", "shell-open", "fs-all", "path-all", "os-all"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
