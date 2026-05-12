@@ -4,8 +4,7 @@
   "description": "生化试剂出入库管理",
   "scripts": {
     "tauri": "tauri",
-    "dev": "tauri dev",
-    "build": "tauri build"
+    "dev": "tauri dev"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^1.5.0"
