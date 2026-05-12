@@ -36,7 +36,4 @@ linux:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-publish:
-  provider: github
-  owner: qianma12
-  repo: reagent-hub
+publish: null
