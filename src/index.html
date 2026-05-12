@@ -2018,14 +2018,14 @@
       },
 
       async _doInit() {
-        if (!window.__TAURI__) {
-          console.log('[Nutstore] 非Tauri环境，跳过坚果云同步');
+        if (!window.electronAPI) {
+          console.log('[Nutstore] 非Electron环境，跳过坚果云同步');
           return false;
         }
         try {
-          const { homeDir, join } = window.__TAURI__.path;
-          const { createDir, exists } = window.__TAURI__.fs;
-          const home = await homeDir();
+          const { homedir, join } = window.electronAPI.path;
+          const { mkdir, exists } = window.electronAPI.fs;
+          const home = await homedir();
           const candidates = [
             await join(home, 'Nutstore'),
             await join(home, '坚果云'),
@@ -2035,7 +2035,7 @@
               if (await exists(dir)) {
                 this.baseDir = await join(dir, 'reagent-inventory');
                 this.opsDir = await join(this.baseDir, 'operations');
-                await createDir(this.opsDir, { recursive: true });
+                await mkdir(this.opsDir, { recursive: true });
                 this.enabled = true;
                 console.log('[Nutstore] 同步已启用:', this.baseDir);
                 return true;
@@ -2044,7 +2044,7 @@
           }
           this.baseDir = await join(home, 'reagent-inventory-sync');
           this.opsDir = await join(this.baseDir, 'operations');
-          await createDir(this.opsDir, { recursive: true });
+          await mkdir(this.opsDir, { recursive: true });
           this.enabled = true;
           console.log('[Nutstore] 使用本地回退目录:', this.baseDir);
           return true;
@@ -2059,10 +2059,10 @@
         await this.init();
         if (!this.enabled) return;
         try {
-          const { writeTextFile, join } = window.__TAURI__.fs;
+          const { writeFile, join } = window.electronAPI.fs;
           const filepath = await join(this.baseDir, 'snapshot.json');
           const payload = { ...data, _timestamp: Date.now(), _version: 2 };
-          await writeTextFile(filepath, JSON.stringify(payload, null, 2));
+          await writeFile(filepath, JSON.stringify(payload, null, 2));
         } catch (e) {
           console.error('[Nutstore] 写入快照失败:', e);
         }
@@ -2073,9 +2073,9 @@
         await this.init();
         if (!this.enabled) return null;
         try {
-          const { readTextFile, join } = window.__TAURI__.fs;
+          const { readFile, join } = window.electronAPI.fs;
           const filepath = await join(this.baseDir, 'snapshot.json');
-          const content = await readTextFile(filepath);
+          const content = await readFile(filepath);
           return JSON.parse(content);
         } catch (e) {
           return null;
@@ -2096,12 +2096,12 @@
         const ops = [...this.opBuffer];
         this.opBuffer = [];
         try {
-          const { writeTextFile, join } = window.__TAURI__.fs;
+          const { writeFile, join } = window.electronAPI.fs;
           const user = 'user';
           for (const op of ops) {
             const filename = `op_${op.timestamp_ms}_${user}.json`;
             const filepath = await join(this.opsDir, filename);
-            await writeTextFile(filepath, JSON.stringify(op, null, 2));
+            await writeFile(filepath, JSON.stringify(op, null, 2));
           }
           console.log(`[Nutstore] 已写入 ${ops.length} 条操作日志`);
         } catch (e) {
@@ -2114,13 +2114,13 @@
         await this.init();
         if (!this.enabled) return [];
         try {
-          const { readDir, readTextFile, join } = window.__TAURI__.fs;
-          const entries = await readDir(this.opsDir);
+          const { readdir, readFile, join } = window.electronAPI.fs;
+          const entries = await readdir(this.opsDir);
           const ops = [];
           for (const entry of entries) {
             if (entry.name && entry.name.startsWith('op_') && entry.name.endsWith('.json')) {
               const filepath = await join(this.opsDir, entry.name);
-              const content = await readTextFile(filepath);
+              const content = await readFile(filepath);
               ops.push(JSON.parse(content));
             }
           }
@@ -2136,11 +2136,11 @@
         await this.init();
         if (!this.enabled) return;
         try {
-          const { writeTextFile, join, removeDir, createDir } = window.__TAURI__.fs;
+          const { writeFile, join, rm, mkdir } = window.electronAPI.fs;
           const payload = { ...data, _timestamp: Date.now(), _version: 2 };
-          await writeTextFile(await join(this.baseDir, 'snapshot.json'), JSON.stringify(payload, null, 2));
-          await removeDir(this.opsDir, { recursive: true });
-          await createDir(this.opsDir, { recursive: true });
+          await writeFile(await join(this.baseDir, 'snapshot.json'), JSON.stringify(payload, null, 2));
+          await rm(this.opsDir, { recursive: true });
+          await mkdir(this.opsDir, { recursive: true });
           console.log('[Nutstore] 已压缩快照，清空操作日志');
         } catch (e) {
           console.error('[Nutstore] 压缩快照失败:', e);

@@ -1,12 +1,20 @@
 {
-  "name": "reagent-inventory",
+  "name": "reagent-hub",
   "version": "1.0.0",
   "description": "生化试剂出入库管理",
+  "author": "Reagent Hub Team",
+  "main": "electron/main.js",
   "scripts": {
-    "tauri": "tauri",
-    "dev": "tauri dev"
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux",
+    "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^1.5.0"
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.0"
   }
 }
