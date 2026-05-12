@@ -1,4 +1,4 @@
-name: Release
+name: Build
 
 on:
   push:
@@ -8,8 +8,6 @@ on:
 
 jobs:
   build-macos:
-    permissions:
-      contents: write
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,19 +18,12 @@ jobs:
         run: npm install
       - name: Build macOS
         run: npm run build:mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/*.dmg
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: macOS
+          path: dist/*.dmg
 
   build-windows:
-    permissions:
-      contents: write
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,20 +34,12 @@ jobs:
         run: npm install
       - name: Build Windows
         run: npm run build:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/*.exe
-            dist/*.msi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: Windows
+          path: dist/*.exe
 
   build-linux:
-    permissions:
-      contents: write
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -67,13 +50,7 @@ jobs:
         run: npm install
       - name: Build Linux
         run: npm run build:linux
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/*.AppImage
-            dist/*.deb
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: Linux
+          path: dist/*.AppImage
