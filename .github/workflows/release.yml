@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Build Tauri
-        uses: tauri-apps/tauri-action@v0.5
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -45,7 +45,7 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Build Tauri
-        uses: tauri-apps/tauri-action@v0.5
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -72,7 +72,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
       - name: Build Tauri
-        uses: tauri-apps/tauri-action@v0.5
+        uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
