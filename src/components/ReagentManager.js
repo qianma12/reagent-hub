@@ -211,38 +211,51 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
 
     // 构建字段映射：CSV列名 -> 字段id
     const csvHeaders = Object.keys(rows[0]);
+    const normalizeHeader = (value) => String(value || '').trim().replace(/\s+/g, '').replace(/[()（）]/g, '').toLowerCase();
+    const findHeader = (aliases) => csvHeaders.find(h => aliases.some(alias => normalizeHeader(h) === normalizeHeader(alias)));
+    const readCell = (row, header) => header ? String(row[header] ?? '').trim() : '';
+    const parseNonNegativeInt = (value) => {
+      const raw = String(value ?? '').trim();
+      if (!raw) return 0;
+      const n = Number.parseFloat(raw.replace(/,/g, ''));
+      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+    };
+    const parseOptionalNonNegativeInt = (value) => {
+      const raw = String(value ?? '').trim();
+      if (!raw) return null;
+      const n = Number.parseFloat(raw.replace(/,/g, ''));
+      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : null;
+    };
     const fieldMap = {};
     allFields.forEach(f => {
       // 优先匹配label，再匹配id
-      const matched = csvHeaders.find(h => h === f.label || h === f.id || h.toLowerCase() === f.label.toLowerCase());
+      const matched = findHeader([f.label, f.id]);
       if (matched) fieldMap[matched] = f.id;
     });
 
-    // 数量列别名映射
-    const qty903Header = csvHeaders.find(h =>
-      h === '903数量' || h === '903' || h.toLowerCase() === '903数量'
-    );
-    const qty908Header = csvHeaders.find(h =>
-      h === '908数量' || h === '908' || h.toLowerCase() === '908数量'
-    );
-    // 位置列别名映射："位置"默认给903，"908位置"专门给908
-    const positionHeader = csvHeaders.find(h =>
-      h === '位置' || h === 'shelf_position' || h === 'location_detail' || h.toLowerCase() === '位置'
-    );
-    const position908Header = csvHeaders.find(h =>
-      h === '908位置' || h === '位置_908' || h === 'shelf_position_908' || h.toLowerCase() === '908位置'
-    );
+    const nameHeader = findHeader(['试剂名称', 'name']);
+    const codeHeader = findHeader(['简写代码', '简写', 'code']);
+    const brandHeader = findHeader(['品牌', 'brand']);
+    const safetyStockHeader = findHeader(['安全库存', '安全库存预警线', '库存预警线', '预警线', '安全线', 'safety_stock', 'safety stock']);
 
-    let added = 0, skipped = 0;
+    // 数量列别名映射
+    const qty903Header = findHeader(['903数量', '903']);
+    const qty908Header = findHeader(['908数量', '908']);
+    // 位置列别名映射："位置"默认给903，"908位置"专门给908
+    const positionHeader = findHeader(['位置', 'shelf_position', 'location_detail']);
+    const position908Header = findHeader(['908位置', '位置_908', 'shelf_position_908']);
+
+    let added = 0, updated = 0, skipped = 0;
     let nextReagentId = Math.max(...reagents.map(r => r.id), 0) + 1;
     let nextInvId = Math.max(...inventory.map(i => i.id), 0) + 1;
     const newReagents = [...reagents];
     const newInventory = [...inventory];
 
     rows.forEach(row => {
-      let name = (row.name || row.试剂名称 || row[fieldMap['name']] || '').trim();
-      let code = (row.code || row.简写 || row.简写代码 || row[fieldMap['code']] || '').trim().toUpperCase();
-      const brand = (row.brand || row.品牌 || row[fieldMap['brand']] || '未标注').trim();
+      let name = readCell(row, nameHeader);
+      let code = readCell(row, codeHeader).toUpperCase();
+      const brand = readCell(row, brandHeader) || '未标注';
+      const safetyStockValue = safetyStockHeader ? parseNonNegativeInt(row[safetyStockHeader]) : 0;
       if (!name) { skipped++; return; }
       // 简写代码为空时，按首字母自动生成
       if (!code) {
@@ -323,7 +336,16 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
         const maxNum = numbers.length > 0 ? Math.max(...numbers) : 0;
         code = prefix + String(maxNum + 1).padStart(2, '0');
       }
-      if (newReagents.some(r => r.code.toLowerCase() === code.toLowerCase())) { skipped++; return; }
+      const duplicateIndex = newReagents.findIndex(r => r.code.toLowerCase() === code.toLowerCase());
+      if (duplicateIndex >= 0) {
+        if (safetyStockHeader) {
+          newReagents[duplicateIndex] = { ...newReagents[duplicateIndex], safety_stock: safetyStockValue };
+          updated++;
+        } else {
+          skipped++;
+        }
+        return;
+      }
 
       // 提取自定义字段
       const custom = {};
@@ -333,7 +355,7 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
       });
 
       const reagentId = nextReagentId++;
-      newReagents.push({ id: reagentId, name, code, brand, custom });
+      newReagents.push({ id: reagentId, name, code, brand, custom, safety_stock: safetyStockValue });
 
       // 读取位置值："位置"列默认给903，"908位置"列专门给908
       const positionValue903 = positionHeader ? (row[positionHeader] || '').trim() : '';
@@ -346,14 +368,14 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
 
       // 导入数量列
       if (qty903Header) {
-        const q = parseInt(row[qty903Header], 10);
-        if (!isNaN(q)) {
+        const q = parseOptionalNonNegativeInt(row[qty903Header]);
+        if (q !== null) {
           newInventory.push({ id: nextInvId++, reagent_id: reagentId, location: '903', shelf_position: shelfPos903, purchase_order: 'CSV导入', current_quantity: q });
         }
       }
       if (qty908Header) {
-        const q = parseInt(row[qty908Header], 10);
-        if (!isNaN(q)) {
+        const q = parseOptionalNonNegativeInt(row[qty908Header]);
+        if (q !== null) {
           // 覆盖默认的 908 0 库存记录
           const default908 = newInventory.find(inv => inv.reagent_id === reagentId && inv.location === '908' && inv.current_quantity === 0);
           if (default908) {
@@ -367,26 +389,28 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
       added++;
     });
 
-    if (added > 0) {
+    if (added > 0 || updated > 0) {
       onReagentsChange(newReagents);
-      onInventoryChange(newInventory);
-      // 批量记一条导入日志
-      const totalQty = newInventory.reduce((sum, inv) => sum + inv.current_quantity, 0);
-      onLogsChange([...logs, {
-        id: Date.now() + Math.random(),
-        timestamp: new Date().toISOString(),
-        operator: '系统导入',
-        reagent_code: `共${added}种试剂`,
-        location: '903/908',
-        change_type: '+',
-        change_amount: totalQty,
-        note: `CSV批量导入 ${added} 种试剂`
-      }]);
+      if (added > 0) {
+        onInventoryChange(newInventory);
+        // 批量记一条导入日志
+        const totalQty = newInventory.reduce((sum, inv) => sum + inv.current_quantity, 0);
+        onLogsChange([...logs, {
+          id: Date.now() + Math.random(),
+          timestamp: new Date().toISOString(),
+          operator: '系统导入',
+          reagent_code: `共${added}种试剂`,
+          location: '903/908',
+          change_type: '+',
+          change_amount: totalQty,
+          note: `CSV批量导入 ${added} 种试剂`
+        }]);
+      }
       setCsvText('');
       setShowImport(false);
-      alert(`成功导入 ${added} 个试剂，跳过 ${skipped} 个（重复或字段缺失）`);
+      alert(`成功导入 ${added} 个试剂，更新 ${updated} 个安全库存，跳过 ${skipped} 个（重复或字段缺失）`);
     } else {
-      alert('未导入任何试剂，请检查CSV格式（需包含 name/code 列）');
+      alert('未导入任何试剂，请检查CSV格式（需包含试剂名称/code列；更新已有安全库存需包含安全库存列）');
     }
   };
 
@@ -419,25 +443,25 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
   };
 
   const sampleCSV = (() => {
-    const cols = [...allFields.map(f => f.label), '903数量', '908数量', '位置', '908位置'];
+    const cols = [...allFields.map(f => f.label), '安全库存', '903数量', '908数量', '位置', '908位置'];
     const example = [...allFields.map(f => {
       if (f.id === 'name') return '葡萄糖';
       if (f.id === 'code') return 'P01';
       if (f.id === 'brand') return 'Sigma-Aldrich';
       return '';
-    }), '12', '45', '实验台A', 'C区-3排'];
+    }), '20', '12', '45', '实验台A', 'C区-3排'];
     return cols.join(',') + '\n' + example.join(',');
   })();
 
   const handleDownloadExcelTemplate = () => {
     try {
-      const headers = [...allFields.map(f => f.label), '903数量', '908数量', '位置'];
+      const headers = [...allFields.map(f => f.label), '安全库存', '903数量', '908数量', '位置', '908位置'];
       const example = [...allFields.map(f => {
         if (f.id === 'name') return '葡萄糖';
         if (f.id === 'code') return 'P01';
         if (f.id === 'brand') return 'Sigma-Aldrich';
         return '';
-      }), '12', '45', '实验台A'];
+      }), '20', '12', '45', '实验台A', 'C区-3排'];
       const ws = XLSX.utils.aoa_to_sheet([headers, example]);
       // 设置列宽
       ws['!cols'] = headers.map(() => ({ wch: 18 }));
@@ -452,7 +476,7 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
   // 导出当前数据为 Excel
   const handleExportData = () => {
     try {
-      const headers = [...allFields.map(f => f.label), '903数量', '908数量', '位置', '908位置'];
+      const headers = [...allFields.map(f => f.label), '安全库存', '903数量', '908数量', '位置', '908位置'];
       const rows = reagents.sort((a, b) => a.code.localeCompare(b.code)).map(r => {
         const inv903 = inventory.find(inv => inv.reagent_id === r.id && inv.location === '903');
         const inv908 = inventory.find(inv => inv.reagent_id === r.id && inv.location === '908');
@@ -461,6 +485,7 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
             if (f.builtin) return r[f.id] || '';
             return r.custom?.[f.id] || '';
           }),
+          r.safety_stock || 0,
           inv903 ? inv903.current_quantity : 0,
           inv908 ? inv908.current_quantity : 0,
           inv903 ? inv903.shelf_position : '',
@@ -605,7 +630,7 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
       </div>
 
       ${showAdd ? window.html`
-        <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onClick=${() => setShowAdd(false)}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop">
           <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick=${e => e.stopPropagation()}>
             <h3 class="text-lg font-bold text-gray-800 mb-4">${editingReagent ? '编辑试剂' : '新增试剂'}</h3>
             <div class="space-y-3">
@@ -659,10 +684,10 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
       ` : null}
 
       ${showImport ? window.html`
-        <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onClick=${() => setShowImport(false)}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop">
           <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6" onClick=${e => e.stopPropagation()}>
             <h3 class="text-lg font-bold text-gray-800 mb-2">批量导入试剂</h3>
-            <p class="text-xs text-gray-500 mb-4">支持 CSV 和 Excel(.xlsx) 文件。列名自动匹配字段：${allFields.map(f => f.label).join('、')}、903数量、908数量。重复code自动跳过。</p>
+            <p class="text-xs text-gray-500 mb-4">支持 CSV 和 Excel(.xlsx) 文件。列名自动匹配字段：${allFields.map(f => f.label).join('、')}、安全库存、903数量、908数量。重复code会更新安全库存。</p>
             <div class="mb-3">
               <input type="file" accept=".csv,.xlsx,.xls" ref=${fileRef} onChange=${handleFileUpload} class="hidden" />
               <button onClick=${() => fileRef.current?.click()}
@@ -682,7 +707,7 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
       ` : null}
 
       ${showFieldConfig ? window.html`
-        <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onClick=${() => setShowFieldConfig(false)}>
+        <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop">
           <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick=${e => e.stopPropagation()}>
             <h3 class="text-lg font-bold text-gray-800 mb-4">字段配置</h3>
             <p class="text-xs text-gray-500 mb-4">以下为基础字段（不可修改）：${BUILTIN_FIELDS.map(f => f.label).join('、')}</p>

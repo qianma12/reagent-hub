@@ -13,6 +13,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     center: true,
+    autoHideMenuBar: true,
     title: 'Reagent Hub v1.2.0',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

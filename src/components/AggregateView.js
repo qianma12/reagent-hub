@@ -28,7 +28,7 @@ export function AggregateView({ reagents, inventory, fields }) {
   const data = useMemo(() => {
     return reagents.map(r => {
       const total = inventory.filter(inv => inv.reagent_id === r.id).reduce((sum, inv) => sum + inv.current_quantity, 0);
-      const isLow = r.safety_stock > 0 && total < r.safety_stock;
+      const isLow = r.safety_stock > 0 && total <= r.safety_stock;
       return { ...r, total, isLow };
     }).filter(r => {
       const s = search.toLowerCase();

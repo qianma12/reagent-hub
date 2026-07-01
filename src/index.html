@@ -32,7 +32,9 @@
     }
   </script>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+    html, body, body * {
+      font-family: "Microsoft YaHei", "微软雅黑", Arial, sans-serif !important;
+    }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
     .fade-in { animation: fadeIn 0.25s ease-out; }
     .stepper-btn { transition: all 0.12s ease; user-select: none; }
@@ -855,19 +857,19 @@
             ${activeView === 'purchase' && html`
               <div class="fade-in">
                 <div class="flex items-center justify-between mb-6">
-                  <h2 class="text-lg font-bold text-gray-800">待采购清单 <span class="text-sm font-normal text-gray-400 ml-2">库存低于安全线</span></h2>
+                  <h2 class="text-lg font-bold text-gray-800">待采购清单 <span class="text-sm font-normal text-gray-400 ml-2">总库存达到或低于安全线</span></h2>
                   <button onClick=${() => {
                     const lowStock = reagents.map(r => {
                       const inv903 = inventory.find(inv => inv.reagent_id === r.id && inv.location === '903');
                       const inv908 = inventory.find(inv => inv.reagent_id === r.id && inv.location === '908');
                       const total = (inv903?.current_quantity || 0) + (inv908?.current_quantity || 0);
                       return { ...r, total, inv903, inv908 };
-                    }).filter(r => r.safety_stock > 0 && r.total < r.safety_stock).sort((a, b) => (a.safety_stock - a.total) - (b.safety_stock - b.total));
-                    const headers = ['试剂名称', '简写', '品牌', 'CAS号', '货号', '规格', '单位', '采购单号', '903数量', '908数量', '总库存', '安全库存', '缺口'];
+                    }).filter(r => r.safety_stock > 0 && r.total <= r.safety_stock).sort((a, b) => (a.safety_stock - a.total) - (b.safety_stock - b.total));
+                    const headers = ['试剂名称', '简写', '品牌', 'CAS号', '货号', '规格', '单位', '903数量', '908数量'];
                     const rows = lowStock.map(r => {
                       const inv903 = r.inv903;
                       const inv908 = r.inv908;
-                      return [r.name, r.code, r.brand, r.custom?.cf_1 || '', r.custom?.cf_3 || '', r.custom?.cf_4 || '', r.custom?.cf_5 || '', inv903?.purchase_order || inv908?.purchase_order || '', inv903?.current_quantity || 0, inv908?.current_quantity || 0, r.total, r.safety_stock, r.safety_stock - r.total];
+                      return [r.name, r.code, r.brand, r.custom?.cf_1 || '', r.custom?.cf_3 || '', r.custom?.cf_4 || '', r.custom?.cf_5 || '', inv903?.current_quantity || 0, inv908?.current_quantity || 0];
                     });
                     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
                     ws['!cols'] = headers.map(() => ({ wch: 14 }));
@@ -897,12 +899,8 @@
                           <th class="text-left px-5 py-3.5 font-semibold text-gray-600 text-xs">货号</th>
                           <th class="text-left px-5 py-3.5 font-semibold text-gray-600 text-xs">规格</th>
                           <th class="text-left px-5 py-3.5 font-semibold text-gray-600 text-xs">单位</th>
-                          <th class="text-left px-5 py-3.5 font-semibold text-gray-600 text-xs">采购单号</th>
                           <th class="text-center px-5 py-3.5 font-semibold text-gray-600 w-20">903数量</th>
                           <th class="text-center px-5 py-3.5 font-semibold text-gray-600 w-20">908数量</th>
-                          <th class="text-center px-5 py-3.5 font-semibold text-gray-600 w-20">总库存</th>
-                          <th class="text-center px-5 py-3.5 font-semibold text-gray-600 w-20">安全库存</th>
-                          <th class="text-center px-5 py-3.5 font-semibold text-gray-600 w-16 text-red-600">缺口</th>
                         </tr>
                       </thead>
                       <tbody class="divide-y divide-gray-100">
@@ -915,7 +913,7 @@
                             const gap = (r.safety_stock || 0) - total;
                             return { ...r, total, gap, inv903, inv908 };
                           }).filter(r => {
-                            if (r.gap <= 0) return false;
+                            if ((r.safety_stock || 0) <= 0 || r.gap < 0) return false;
                             if (!s) return true;
                             // 搜索覆盖该页面所有可见字段
                             const nameMatch = r.name.toLowerCase().includes(s);
@@ -925,8 +923,7 @@
                             const catMatch = (r.custom?.cf_3 || '').toLowerCase().includes(s);
                             const specMatch = (r.custom?.cf_4 || '').toLowerCase().includes(s);
                             const unitMatch = (r.custom?.cf_5 || '').toLowerCase().includes(s);
-                            const poMatch = ((r.inv903?.purchase_order || '') + (r.inv908?.purchase_order || '')).toLowerCase().includes(s);
-                            return nameMatch || codeMatch || brandMatch || casMatch || catMatch || specMatch || unitMatch || poMatch;
+                            return nameMatch || codeMatch || brandMatch || casMatch || catMatch || specMatch || unitMatch;
                           }).sort((a, b) => (a.safety_stock - a.total) - (b.safety_stock - b.total));
                           return filtered.map(r => html`
                             <tr key=${r.id} class="hover:bg-gray-50/50 transition-colors">
@@ -937,12 +934,8 @@
                               <td class="px-5 py-4 text-gray-500 text-xs font-mono">${r.custom?.cf_3 || '—'}</td>
                               <td class="px-5 py-4 text-gray-500 text-xs">${r.custom?.cf_4 || '—'}</td>
                               <td class="px-5 py-4 text-gray-500 text-xs">${r.custom?.cf_5 || '—'}</td>
-                              <td class="px-5 py-4 text-gray-500 text-xs font-mono">${r.inv903?.purchase_order || r.inv908?.purchase_order || '—'}</td>
                               <td class="px-5 py-4 text-center text-gray-600">${r.inv903?.current_quantity || 0}</td>
                               <td class="px-5 py-4 text-center text-gray-600">${r.inv908?.current_quantity || 0}</td>
-                              <td class="px-5 py-4 text-center font-bold text-gray-800">${r.total}</td>
-                              <td class="px-5 py-4 text-center text-gray-600">${r.safety_stock || 0}</td>
-                              <td class="px-5 py-4 text-center font-bold text-red-600">${r.gap}</td>
                             </tr>
                           `);
                         })()}
@@ -951,7 +944,7 @@
                   </div>
                   ${reagents.every(r => {
                     const total = inventory.filter(inv => inv.reagent_id === r.id).reduce((s, i) => s + i.current_quantity, 0);
-                    return (r.safety_stock || 0) <= total;
+                    return (r.safety_stock || 0) <= 0 || total > r.safety_stock;
                   }) && html`
                     <div class="text-center py-16 text-gray-400">
                       <div class="text-5xl mb-3 opacity-50">✅</div>
@@ -970,7 +963,7 @@
           </main>
 
           ${showOperatorModal && html`
-            <div class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center" onClick=${() => setShowOperatorModal(false)}>
+            <div class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">
               <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm mx-4" onClick=${e => e.stopPropagation()}>
                 <h3 class="text-lg font-bold text-gray-800 mb-2">${operator ? '更换操作人' : '设置操作人'}</h3>
                 <p class="text-sm text-gray-500 mb-4">设备名: ${hostname || '未知'}</p>
@@ -993,7 +986,7 @@
           `}
 
           ${showPathModal && html`
-            <div class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center" onClick=${() => setShowPathModal(false)}>
+            <div class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center">
               <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg mx-4" onClick=${e => e.stopPropagation()}>
                 <h3 class="text-lg font-bold text-gray-800 mb-2">修改同步路径</h3>
                 <p class="text-sm text-gray-500 mb-4">当前路径: ${syncPath || '未设置'}</p>

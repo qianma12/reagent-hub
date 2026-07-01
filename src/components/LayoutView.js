@@ -1269,7 +1269,7 @@ export function LayoutEditor({ config, onSave, onCancel }) {
   const titles = { workbench: '实验台', drawer: '抽屉', zone: '区域', rack: '货架', cabinet: '货柜' };
 
   return window.html`
-    <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop" onClick=${onCancel}>
+    <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop">
       <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick=${e => e.stopPropagation()}>
         <h3 class="text-lg font-bold text-gray-800 mb-4">${isNew ? '添加' : '编辑'}${titles[type]}</h3>
         <div class="space-y-3">
