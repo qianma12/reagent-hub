@@ -64,7 +64,6 @@ jobs:
         with:
           name: ${{ matrix.os }}-build
           path: |
-            dist/*.dmg
             dist/*.zip
             dist/*.exe
           if-no-files-found: ignore

@@ -21,25 +21,22 @@
     },
     "files": [
       "electron/**/*",
-      "src/**/*",
-      "node_modules/**/*"
+      "src/**/*"
+    ],
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
     ],
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] },
         { "target": "zip", "arch": ["x64", "arm64"] }
       ],
       "category": "public.app-category.productivity"
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64", "arm64"] },
         { "target": "portable", "arch": ["x64", "arm64"] }
       ]
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false
     }
   },
   "devDependencies": {
