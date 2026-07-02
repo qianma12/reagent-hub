@@ -472,6 +472,9 @@
       const [syncStatus, setSyncStatus] = useState('idle');
       const [lastSyncTime, setLastSyncTime] = useState(0);
       const syncTimerRef = useRef(null);
+      const syncReadyRef = useRef(false);
+      const suppressNextSnapshotWriteRef = useRef(false);
+      const isChangingSyncPathRef = useRef(false);
       const [purchaseSearch, setPurchaseSearch] = useState('');
 
       const [reagents, setReagents] = useState(() => {
@@ -684,13 +687,55 @@
       // 修改同步路径
       const changeSyncPath = async () => {
         if (!newSyncPath.trim()) return;
-        const success = await NutstoreSync.setBaseDir(newSyncPath.trim());
-        if (success) {
-          setSyncPath(newSyncPath.trim());
+        const nextPath = newSyncPath.trim();
+        if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+        isChangingSyncPathRef.current = true;
+        syncReadyRef.current = false;
+        try {
+          const success = await NutstoreSync.setBaseDir(nextPath);
+          if (!success) {
+            alert('路径设置失败，请检查路径是否存在且可访问');
+            return;
+          }
+
+          const snapshot = await NutstoreSync.readSnapshot();
+          const ops = await NutstoreSync.readAllOps();
+          let loadedRemoteData = false;
+
+          if (snapshot && snapshot._timestamp) {
+            suppressNextSnapshotWriteRef.current = true;
+            if (snapshot.reagents) setReagents(snapshot.reagents);
+            if (snapshot.fields) setFields(snapshot.fields);
+            if (snapshot.layouts) setLayouts(snapshot.layouts);
+            if (snapshot.inventory) setInventory(snapshot.inventory);
+            if (snapshot.logs) setLogs(snapshot.logs);
+            localStorage.setItem('ri_last_sync', String(snapshot._timestamp));
+            setLastSyncTime(snapshot._timestamp);
+            loadedRemoteData = true;
+          }
+
+          if (ops.length > 0) {
+            suppressNextSnapshotWriteRef.current = true;
+            for (const op of ops) {
+              applyOperation(op);
+            }
+            localStorage.setItem('ri_last_sync', String(Date.now()));
+            setLastSyncTime(Date.now());
+            loadedRemoteData = true;
+          }
+
+          syncReadyRef.current = true;
+          setSyncPath(nextPath);
           setShowPathModal(false);
           setNewSyncPath('');
-        } else {
+          if (!loadedRemoteData) {
+            console.log('[Nutstore] 新同步路径暂无快照，等待后续数据变更后写入');
+          }
+        } catch (e) {
+          console.error('切换同步路径失败:', e);
           alert('路径设置失败，请检查路径是否存在且可访问');
+        } finally {
+          isChangingSyncPathRef.current = false;
         }
       };
 
@@ -727,6 +772,7 @@
           if (snapshot && snapshot._timestamp) {
             const localTs = parseInt(localStorage.getItem('ri_last_sync') || '0');
             if (snapshot._timestamp > localTs) {
+              suppressNextSnapshotWriteRef.current = true;
               if (snapshot.reagents) setReagents(snapshot.reagents);
               if (snapshot.fields) setFields(snapshot.fields);
               if (snapshot.layouts) setLayouts(snapshot.layouts);
@@ -739,6 +785,7 @@
 
           // 重放增量操作（高频数据）
           if (ops.length > 0) {
+            suppressNextSnapshotWriteRef.current = true;
             for (const op of ops) {
               applyOperation(op);
             }
@@ -752,14 +799,21 @@
               NutstoreSync.compressSnapshot({ reagents, inventory, logs, fields, layouts });
             }, 5000);
           }
+          syncReadyRef.current = true;
         });
         return () => { cancelled = true; };
       }, []);
 
       // 低频数据变更后防抖写入快照（包含完整状态）
       useEffect(() => {
+        if (!syncReadyRef.current || isChangingSyncPathRef.current) return;
+        if (suppressNextSnapshotWriteRef.current) {
+          suppressNextSnapshotWriteRef.current = false;
+          return;
+        }
         if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
         syncTimerRef.current = setTimeout(() => {
+          if (!syncReadyRef.current || isChangingSyncPathRef.current) return;
           NutstoreSync.writeSnapshot({ reagents, inventory, logs, fields, layouts });
         }, 5000);
         return () => { if (syncTimerRef.current) clearTimeout(syncTimerRef.current); };
