@@ -18,6 +18,14 @@ const BUILTIN_FIELDS = [
   { id: 'brand', label: '品牌', type: 'text', builtin: true, required: false },
 ];
 
+const normalizeFieldLabel = (value) => String(value || '').trim().replace(/\s+/g, '');
+const isCategoryField = (field) => normalizeFieldLabel(field?.label) === '分类';
+const normalizeItemCategory = (value) => {
+  const text = String(value || '').trim().toLowerCase();
+  if (text.includes('耗材') || text.includes('consumable')) return '耗材';
+  return '试剂';
+};
+
 export function ReagentManager({ reagents, inventory, fields, logs, onReagentsChange, onInventoryChange, onInventoryItemChange, onFieldsChange, onLogsChange }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
@@ -34,11 +42,17 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
 
   const customFields = fields.filter(f => !f.builtin);
   const allFields = fields;
+  const categoryField = customFields.find(isCategoryField);
+  const normalizeCustomValues = (custom = {}) => {
+    const next = { ...custom };
+    if (categoryField) next[categoryField.id] = normalizeItemCategory(next[categoryField.id]);
+    return next;
+  };
 
   // 重置表单
   const resetForm = () => {
     const emptyCustom = {};
-    customFields.forEach(f => emptyCustom[f.id] = '');
+    customFields.forEach(f => emptyCustom[f.id] = isCategoryField(f) ? '试剂' : '');
     setForm({ name: '', code: '', brand: '', custom: emptyCustom });
     setQty903('');
     setQty908('');
@@ -48,7 +62,8 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
   const openAdd = () => { resetForm(); setEditingReagent(null); setShowAdd(true); };
   const openEdit = (r) => {
     const custom = { ...r.custom };
-    customFields.forEach(f => { if (!(f.id in custom)) custom[f.id] = ''; });
+    customFields.forEach(f => { if (!(f.id in custom)) custom[f.id] = isCategoryField(f) ? '试剂' : ''; });
+    if (categoryField) custom[categoryField.id] = normalizeItemCategory(custom[categoryField.id]);
     setForm({ name: r.name, code: r.code, brand: r.brand, custom });
     // 回显当前库存数量和安全库存
     const inv903 = inventory.find(inv => inv.reagent_id === r.id && inv.location === '903');
@@ -92,13 +107,14 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
 
     const ss = safetyStock.trim() === '' ? 0 : parseInt(safetyStock, 10);
     const safetyStockValue = isNaN(ss) ? 0 : Math.max(0, ss);
+    const savedCustom = normalizeCustomValues(form.custom);
     let targetReagentId;
 
     if (editingReagent) {
       // 编辑试剂信息
       onReagentsChange(reagents.map(r => r.id === editingReagent.id ? {
         ...r, name: form.name.trim(), code: codeUpper, brand: form.brand.trim(),
-        custom: { ...form.custom }, safety_stock: safetyStockValue
+        custom: savedCustom, safety_stock: safetyStockValue
       } : r));
       targetReagentId = editingReagent.id;
 
@@ -134,7 +150,7 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
       const newId = Math.max(...reagents.map(r => r.id), 0) + 1;
       onReagentsChange([...reagents, {
         id: newId, name: form.name.trim(), code: codeUpper, brand: form.brand.trim() || '未标注',
-        custom: { ...form.custom }, safety_stock: safetyStockValue
+        custom: savedCustom, safety_stock: safetyStockValue
       }]);
       targetReagentId = newId;
 
@@ -232,6 +248,23 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
       const matched = findHeader([f.label, f.id]);
       if (matched) fieldMap[matched] = f.id;
     });
+    const getRowCustomValues = (row, { includeDefaults = false } = {}) => {
+      const custom = {};
+      customFields.forEach(f => {
+        const matchedHeader = csvHeaders.find(h => fieldMap[h] === f.id);
+        if (matchedHeader) {
+          const value = String(row[matchedHeader] ?? '').trim();
+          if (isCategoryField(f)) {
+            custom[f.id] = normalizeItemCategory(value);
+          } else if (value !== '') {
+            custom[f.id] = value;
+          }
+        } else if (includeDefaults && isCategoryField(f)) {
+          custom[f.id] = '试剂';
+        }
+      });
+      return custom;
+    };
 
     const nameHeader = findHeader(['试剂名称', 'name']);
     const codeHeader = findHeader(['简写代码', '简写', 'code']);
@@ -338,8 +371,20 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
       }
       const duplicateIndex = newReagents.findIndex(r => r.code.toLowerCase() === code.toLowerCase());
       if (duplicateIndex >= 0) {
+        const customUpdates = getRowCustomValues(row);
+        const hasCustomUpdates = Object.keys(customUpdates).length > 0;
         if (safetyStockHeader) {
-          newReagents[duplicateIndex] = { ...newReagents[duplicateIndex], safety_stock: safetyStockValue };
+          newReagents[duplicateIndex] = {
+            ...newReagents[duplicateIndex],
+            custom: { ...(newReagents[duplicateIndex].custom || {}), ...customUpdates },
+            safety_stock: safetyStockValue
+          };
+          updated++;
+        } else if (hasCustomUpdates) {
+          newReagents[duplicateIndex] = {
+            ...newReagents[duplicateIndex],
+            custom: { ...(newReagents[duplicateIndex].custom || {}), ...customUpdates },
+          };
           updated++;
         } else {
           skipped++;
@@ -348,11 +393,7 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
       }
 
       // 提取自定义字段
-      const custom = {};
-      customFields.forEach(f => {
-        const matchedHeader = csvHeaders.find(h => fieldMap[h] === f.id);
-        if (matchedHeader) custom[f.id] = row[matchedHeader] || '';
-      });
+      const custom = getRowCustomValues(row, { includeDefaults: true });
 
       const reagentId = nextReagentId++;
       newReagents.push({ id: reagentId, name, code, brand, custom, safety_stock: safetyStockValue });
@@ -408,9 +449,9 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
       }
       setCsvText('');
       setShowImport(false);
-      alert(`成功导入 ${added} 个试剂，更新 ${updated} 个安全库存，跳过 ${skipped} 个（重复或字段缺失）`);
+      alert(`成功导入 ${added} 个试剂，更新 ${updated} 个已有试剂信息，跳过 ${skipped} 个（重复且无可更新字段或字段缺失）`);
     } else {
-      alert('未导入任何试剂，请检查CSV格式（需包含试剂名称/code列；更新已有安全库存需包含安全库存列）');
+      alert('未导入任何试剂，请检查CSV格式（需包含试剂名称/code列；更新已有试剂需包含安全库存、分类或其他自定义字段）');
     }
   };
 
@@ -419,12 +460,14 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
   const handleAddField = () => {
     const label = newFieldLabel.trim();
     if (!label) return;
-    if (customFields.some(f => f.label === label)) return alert('该字段名称已存在');
+    if (customFields.some(f => normalizeFieldLabel(f.label) === normalizeFieldLabel(label))) return alert('该字段名称已存在');
     const newId = 'cf_' + (Math.max(...customFields.map(f => parseInt(f.id.replace('cf_', '')) || 0), 0) + 1);
     onFieldsChange([...fields, { id: newId, label, type: 'text', builtin: false, required: false }]);
     setNewFieldLabel('');
   };
   const handleRemoveField = (fieldId) => {
+    const targetField = fields.find(f => f.id === fieldId);
+    if (isCategoryField(targetField)) return alert('分类字段用于全局总览筛选，不能删除');
     if (!confirm('删除字段后，所有试剂在该字段上的数据将丢失，确定继续？')) return;
     onFieldsChange(fields.filter(f => f.id !== fieldId));
     // 清理试剂数据中的该字段
@@ -448,6 +491,7 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
       if (f.id === 'name') return '葡萄糖';
       if (f.id === 'code') return 'P01';
       if (f.id === 'brand') return 'Sigma-Aldrich';
+      if (isCategoryField(f)) return '试剂';
       return '';
     }), '20', '12', '45', '实验台A', 'C区-3排'];
     return cols.join(',') + '\n' + example.join(',');
@@ -460,6 +504,7 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
         if (f.id === 'name') return '葡萄糖';
         if (f.id === 'code') return 'P01';
         if (f.id === 'brand') return 'Sigma-Aldrich';
+        if (isCategoryField(f)) return '试剂';
         return '';
       }), '20', '12', '45', '实验台A', 'C区-3排'];
       const ws = XLSX.utils.aoa_to_sheet([headers, example]);
@@ -643,6 +688,13 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
                       onBlur=${f.id === 'code' ? handleCodeBlur : undefined}
                       class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-primary text-sm ${f.id === 'code' ? 'font-mono uppercase' : ''}"
                       placeholder=${f.id === 'code' ? '如：P01 或只填字母如 Y' : f.id === 'name' ? '如：葡萄糖' : ''} />
+                  ` : isCategoryField(f) ? window.html`
+                    <select value=${normalizeItemCategory(form.custom?.[f.id])}
+                      onChange=${e => setForm({...form, custom: {...form.custom, [f.id]: e.target.value}})}
+                      class="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-primary text-sm bg-white">
+                      <option value="试剂">试剂</option>
+                      <option value="耗材">耗材</option>
+                    </select>
                   ` : window.html`
                     <input value=${form.custom?.[f.id] || ''}
                       onInput=${e => setForm({...form, custom: {...form.custom, [f.id]: e.target.value}})}
@@ -687,7 +739,7 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
         <div class="fixed inset-0 z-50 flex items-center justify-center modal-backdrop">
           <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6" onClick=${e => e.stopPropagation()}>
             <h3 class="text-lg font-bold text-gray-800 mb-2">批量导入试剂</h3>
-            <p class="text-xs text-gray-500 mb-4">支持 CSV 和 Excel(.xlsx) 文件。列名自动匹配字段：${allFields.map(f => f.label).join('、')}、安全库存、903数量、908数量。重复code会更新安全库存。</p>
+            <p class="text-xs text-gray-500 mb-4">支持 CSV 和 Excel(.xlsx) 文件。列名自动匹配字段：${allFields.map(f => f.label).join('、')}、安全库存、903数量、908数量。重复code会更新安全库存、分类等已提供字段。</p>
             <div class="mb-3">
               <input type="file" accept=".csv,.xlsx,.xls" ref=${fileRef} onChange=${handleFileUpload} class="hidden" />
               <button onClick=${() => fileRef.current?.click()}
@@ -715,14 +767,14 @@ export function ReagentManager({ reagents, inventory, fields, logs, onReagentsCh
             <div class="space-y-2 mb-4">
               ${customFields.map((f, idx) => window.html`
                 <div key=${f.id} class="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg">
-                  <span class="flex-1 text-sm text-gray-700">${f.label}</span>
+                  <span class="flex-1 text-sm text-gray-700">${f.label}${isCategoryField(f) ? window.html`<span class="ml-2 text-[10px] text-gray-400">固定</span>` : null}</span>
                   <div class="flex gap-1">
                     <button onClick=${() => handleMoveField(BUILTIN_FIELDS.length + idx, -1)} disabled=${BUILTIN_FIELDS.length + idx <= BUILTIN_FIELDS.length}
                       class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-primary hover:bg-white disabled:opacity-30 text-xs">↑</button>
                     <button onClick=${() => handleMoveField(BUILTIN_FIELDS.length + idx, 1)} disabled=${BUILTIN_FIELDS.length + idx >= fields.length - 1}
                       class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-primary hover:bg-white disabled:opacity-30 text-xs">↓</button>
-                    <button onClick=${() => handleRemoveField(f.id)}
-                      class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-danger hover:bg-white text-xs">✕</button>
+                    <button onClick=${() => handleRemoveField(f.id)} disabled=${isCategoryField(f)}
+                      class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-danger hover:bg-white disabled:opacity-30 disabled:hover:text-gray-400 text-xs">✕</button>
                   </div>
                 </div>
               `)}

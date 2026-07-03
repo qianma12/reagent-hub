@@ -294,7 +294,38 @@
     const INITIAL_CUSTOM_FIELDS = [
       { id: 'cf_1', label: 'CAS号', type: 'text', builtin: false, required: false },
       { id: 'cf_2', label: '储存条件', type: 'text', builtin: false, required: false },
+      { id: 'cf_category', label: '分类', type: 'text', builtin: false, required: false },
     ];
+
+    const normalizeFieldLabel = (value) => String(value || '').trim().replace(/\s+/g, '');
+    const getCategoryField = (fieldList) => (fieldList || []).find(f => normalizeFieldLabel(f.label) === '分类');
+    const makeCategoryField = (fieldList) => {
+      let id = 'cf_category';
+      let index = 1;
+      while ((fieldList || []).some(f => f.id === id)) {
+        id = `cf_category_${index++}`;
+      }
+      return { id, label: '分类', type: 'text', builtin: false, required: false };
+    };
+    const ensureCategoryField = (fieldList) => {
+      const list = Array.isArray(fieldList) ? fieldList : [...BUILTIN_FIELDS, ...INITIAL_CUSTOM_FIELDS];
+      return getCategoryField(list) ? list : [...list, makeCategoryField(list)];
+    };
+    const normalizeItemCategory = (value) => {
+      const text = String(value || '').trim().toLowerCase();
+      if (text.includes('耗材') || text.includes('consumable')) return '耗材';
+      return '试剂';
+    };
+    const ensureReagentSchema = (reagentList, fieldList) => {
+      const categoryField = getCategoryField(ensureCategoryField(fieldList));
+      return (Array.isArray(reagentList) ? reagentList : []).map(r => {
+        const custom = { ...(r.custom || {}) };
+        if (categoryField) {
+          custom[categoryField.id] = normalizeItemCategory(custom[categoryField.id]);
+        }
+        return { ...r, custom, safety_stock: r.safety_stock ?? 0 };
+      });
+    };
 
     // ==================== Mock 数据 ====================
     const INITIAL_REAGENTS = [
@@ -480,8 +511,10 @@
       const [reagents, setReagents] = useState(() => {
         const saved = localStorage.getItem('ri_reagents');
         const data = saved ? JSON.parse(saved) : INITIAL_REAGENTS;
-        // 数据迁移：补全 safety_stock 字段
-        return data.map(r => ({ ...r, safety_stock: r.safety_stock ?? 0 }));
+        const savedFields = localStorage.getItem('ri_fields');
+        const fieldList = savedFields ? JSON.parse(savedFields) : [...BUILTIN_FIELDS, ...INITIAL_CUSTOM_FIELDS];
+        // 数据迁移：补全 safety_stock 和分类字段
+        return ensureReagentSchema(data, fieldList);
       });
       const [inventory, setInventory] = useState(() => {
         const saved = localStorage.getItem('ri_inventory');
@@ -493,19 +526,26 @@
       });
       const [fields, setFields] = useState(() => {
         const saved = localStorage.getItem('ri_fields');
-        return saved ? JSON.parse(saved) : [...BUILTIN_FIELDS, ...INITIAL_CUSTOM_FIELDS];
+        return ensureCategoryField(saved ? JSON.parse(saved) : [...BUILTIN_FIELDS, ...INITIAL_CUSTOM_FIELDS]);
       });
-      // 数据迁移：补全 safety_stock
-      const migrateSafetyStock = () => {
+      // 数据迁移：补全 safety_stock 和分类字段
+      const migrateReagentSchema = () => {
+        const fieldSaved = localStorage.getItem('ri_fields');
+        const currentFields = fieldSaved ? JSON.parse(fieldSaved) : [...BUILTIN_FIELDS, ...INITIAL_CUSTOM_FIELDS];
+        const nextFields = ensureCategoryField(currentFields);
+        if (JSON.stringify(nextFields) !== JSON.stringify(currentFields)) {
+          localStorage.setItem('ri_fields', JSON.stringify(nextFields));
+        }
         const saved = localStorage.getItem('ri_reagents');
         if (saved) {
           const data = JSON.parse(saved);
-          if (data.some(r => r.safety_stock === undefined)) {
-            localStorage.setItem('ri_reagents', JSON.stringify(data.map(r => ({ ...r, safety_stock: r.safety_stock ?? 0 }))));
+          const migrated = ensureReagentSchema(data, nextFields);
+          if (JSON.stringify(migrated) !== JSON.stringify(data)) {
+            localStorage.setItem('ri_reagents', JSON.stringify(migrated));
           }
         }
       };
-      migrateSafetyStock();
+      migrateReagentSchema();
 
       // 数据迁移：旧 location 名称 → 新名称
       const migrateLocationData = () => {
@@ -704,8 +744,9 @@
 
           if (snapshot && snapshot._timestamp) {
             suppressNextSnapshotWriteRef.current = true;
-            if (snapshot.reagents) setReagents(snapshot.reagents);
-            if (snapshot.fields) setFields(snapshot.fields);
+            const remoteFields = ensureCategoryField(snapshot.fields || fields);
+            if (snapshot.fields) setFields(remoteFields);
+            if (snapshot.reagents) setReagents(ensureReagentSchema(snapshot.reagents, remoteFields));
             if (snapshot.layouts) setLayouts(snapshot.layouts);
             if (snapshot.inventory) setInventory(snapshot.inventory);
             if (snapshot.logs) setLogs(snapshot.logs);
@@ -773,8 +814,9 @@
             const localTs = parseInt(localStorage.getItem('ri_last_sync') || '0');
             if (snapshot._timestamp > localTs) {
               suppressNextSnapshotWriteRef.current = true;
-              if (snapshot.reagents) setReagents(snapshot.reagents);
-              if (snapshot.fields) setFields(snapshot.fields);
+              const remoteFields = ensureCategoryField(snapshot.fields || fields);
+              if (snapshot.fields) setFields(remoteFields);
+              if (snapshot.reagents) setReagents(ensureReagentSchema(snapshot.reagents, remoteFields));
               if (snapshot.layouts) setLayouts(snapshot.layouts);
               if (snapshot.inventory) setInventory(snapshot.inventory);
               if (snapshot.logs) setLogs(snapshot.logs);

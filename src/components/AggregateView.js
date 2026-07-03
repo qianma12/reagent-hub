@@ -3,16 +3,37 @@
  * 改动记录：
  * - 新增：低库存预警（安全库存以下卡片红色高亮+置顶排序）
  * - 新增：负责人筛选下拉框
+ * - 新增：分类筛选（全部 / 试剂 / 耗材）
  */
 const { useState, useMemo } = window.PreactHooks;
+const normalizeFieldLabel = (value) => String(value || '').trim().replace(/\s+/g, '');
+const isCategoryField = (field) => normalizeFieldLabel(field?.label) === '分类';
+const normalizeItemCategory = (value) => {
+  const text = String(value || '').trim().toLowerCase();
+  if (text.includes('耗材') || text.includes('consumable')) return '耗材';
+  return '试剂';
+};
+
 export function AggregateView({ reagents, inventory, fields }) {
   const [search, setSearch] = useState('');
   const [operatorFilter, setOperatorFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('all');
   const customFields = fields.filter(f => !f.builtin);
 
   // 识别特殊自定义字段
   const operatorField = customFields.find(f => f.label === '负责人');
   const unitField = customFields.find(f => f.label === '单位');
+  const categoryField = customFields.find(isCategoryField);
+  const getItemCategory = (item) => normalizeItemCategory(item.custom?.[categoryField?.id]);
+
+  const categoryCounts = useMemo(() => {
+    return reagents.reduce((counts, item) => {
+      const category = getItemCategory(item);
+      counts.all += 1;
+      counts[category] = (counts[category] || 0) + 1;
+      return counts;
+    }, { all: 0, '试剂': 0, '耗材': 0 });
+  }, [reagents, categoryField]);
 
   // 收集所有不重复的负责人
   const operators = useMemo(() => {
@@ -35,14 +56,15 @@ export function AggregateView({ reagents, inventory, fields }) {
       const basicMatch = r.name.toLowerCase().includes(s) || r.code.toLowerCase().includes(s) || r.brand.toLowerCase().includes(s);
       const customMatch = Object.values(r.custom || {}).some(v => String(v).toLowerCase().includes(s));
       const operatorMatch = !operatorFilter || r.custom?.[operatorField?.id] === operatorFilter;
-      return (basicMatch || customMatch) && operatorMatch;
+      const categoryMatch = categoryFilter === 'all' || getItemCategory(r) === categoryFilter;
+      return (basicMatch || customMatch) && operatorMatch && categoryMatch;
     }).sort((a, b) => {
       // 低库存排前面
       if (a.isLow && !b.isLow) return -1;
       if (!a.isLow && b.isLow) return 1;
       return a.code.localeCompare(b.code);
     });
-  }, [reagents, inventory, search, operatorFilter, operatorField]);
+  }, [reagents, inventory, search, operatorFilter, operatorField, categoryFilter, categoryField]);
 
   // 数量颜色计算
   const getQuantityColor = (total) => {
@@ -65,6 +87,18 @@ export function AggregateView({ reagents, inventory, fields }) {
   return window.html`
     <div class="fade-in">
       <div class="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-6">
+        <div class="inline-flex p-1 rounded-xl bg-white border border-gray-200 shadow-sm">
+          ${[
+            { id: 'all', label: '全部', count: categoryCounts.all },
+            { id: '试剂', label: '试剂', count: categoryCounts['试剂'] || 0 },
+            { id: '耗材', label: '耗材', count: categoryCounts['耗材'] || 0 },
+          ].map(option => window.html`
+            <button key=${option.id} onClick=${() => setCategoryFilter(option.id)}
+              class="px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${categoryFilter === option.id ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'}">
+              ${option.label}<span class="ml-1 text-xs opacity-75">${option.count}</span>
+            </button>
+          `)}
+        </div>
         <div class="flex-1 relative">
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
           <input type="text" placeholder="搜索试剂名称、简写、品牌或自定义字段..." value=${search}
